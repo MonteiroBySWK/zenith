@@ -12,6 +12,8 @@ def index():
 @app.route("/predict", methods=["GET, POST"])
 def predict():
     # load predict model
+    
+    if 
 
     return """
        <p><p> 
