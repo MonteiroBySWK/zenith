@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, render_template, request
 from flask.json import jsonify
 
 app = Flask(__name__)
@@ -6,18 +6,17 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "<h1>Hello World</h1>"
+    return "<div style='height: 100vh; width: 100%; display: flex; justify-content: center; align-items: center;'><h1>It's Work!</h1></div>"
 
 
-@app.route("/predict", methods=["GET, POST"])
+@app.route("/predict", methods=["GET", "POST"])
 def predict():
     # load predict model
-    
-    if 
 
-    return """
-       <p><p> 
-    """
+    if request.method == "POST":
+        return "<p>POST</p>"
+    else:
+        return render_template("/predict.html")
 
 
 @app.route("/dashboard")
