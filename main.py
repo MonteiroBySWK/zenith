@@ -31,7 +31,7 @@ def read_file(file):
 
     return result
 
-def predict(data):
+def predict_model(data):
     # Modelo de predição aqui, retornar um excel? 
     # Não sei se é pra retornar a previsão de um dia ou de uma determinada serie
     ...
@@ -46,7 +46,8 @@ def predict():
 
     result = read_file(file)
 
-    # predict(data)
+    # aqui vem o predict(data)
+    # puta merda isso tá muito mal escrito
 
     return jsonify(result), 200
 
