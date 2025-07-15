@@ -16,11 +16,11 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-DB_PATH = Path("./data/estoque.db")
+DB_PATH = Path("./enos/data/estoque.db")
 
 # --- Configuração do Script ---
 CONFIG: Dict[str, Any] = {
-    "entrada": Path("./data/dados_zenith.csv")
+    "entrada": Path("./enos/data/dados_zenith.csv")
 }
 
 def logar_busca_previsoes(conn: sqlite3.Connection, sku: str) -> List[Dict[str, Any]]:
