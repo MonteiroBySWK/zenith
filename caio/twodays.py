@@ -62,66 +62,67 @@ class App(ctk.CTk):
     def testar_modelo_prophet(self):
         try:
             import holidays
-            from prophet import Prophet  # Modelo de previsão temporal
+            from prophet import Prophet
+            from sklearn.metrics import mean_squared_error  # ⬅️ Import necessário
 
-            # Carrega os dados históricos de vendas
+            # Carrega dados
             df = pd.read_csv("dados_zenith.csv", dayfirst=True)
             df['data_dia'] = pd.to_datetime(df['data_dia'], format='%d/%m/%Y')
             df = df.sort_values("data_dia").reset_index(drop=True)
 
-            # Divide os dados: 83 dias de treino e últimos 7 de teste
+            # Divide entre treino e teste
             df_treino = df[:-7].tail(83).reset_index(drop=True)
             df_teste_real = df[-7:].reset_index(drop=True)
 
-            # Renomeia colunas conforme exigido pelo Prophet
+            # Formata para o Prophet
             df_prophet = df_treino.rename(columns={
-                "data_dia": "ds",      # data
-                "total_venda_dia_kg": "y"  # valor de venda
+                "data_dia": "ds",
+                "total_venda_dia_kg": "y"
             })
 
-            # Obtém os feriados do Brasil para considerar como sazonalidade
+            # Define feriados
             feriados = holidays.Brazil(years=df_prophet['ds'].dt.year.unique().tolist())
-
-            # Constrói DataFrame com os feriados
             feriados_df = pd.DataFrame([
                 {'holiday': 'feriado', 'ds': pd.to_datetime(date), 'lower_window': 0, 'upper_window': 1}
                 for date in feriados.keys()
             ])
 
-            # Cria e treina o modelo Prophet
+            # Treina modelo
             model = Prophet(
                 yearly_seasonality=False,
                 weekly_seasonality=True,
                 daily_seasonality=False,
-                changepoint_prior_scale=0.01,  # sensibilidade a mudanças
+                changepoint_prior_scale=0.01,
                 holidays=feriados_df
             )
-            model.add_seasonality(name='weekly_custom', period=7, fourier_order=3)  # sazonalidade semanal
+            model.add_seasonality(name='weekly_custom', period=7, fourier_order=3)
             model.fit(df_prophet)
 
-            # Cria o futuro com 7 dias para previsão
+            # Faz previsões
             future = model.make_future_dataframe(periods=7)
             forecast = model.predict(future)
-
-            # Extrai previsões dos últimos 7 dias
             previsoes = forecast[['ds', 'yhat']].tail(7).reset_index(drop=True)
-            previsoes['real'] = df_teste_real['total_venda_dia_kg']  # valores reais
-            previsoes['erro_abs'] = (previsoes['yhat'] - previsoes['real']).abs()  # erro absoluto
-            mae = previsoes['erro_abs'].mean()  # erro médio absoluto
 
-            # Monta o texto de saída com comparações
+            # Compara com valores reais
+            previsoes['real'] = df_teste_real['total_venda_dia_kg']
+            previsoes['erro_abs'] = (previsoes['yhat'] - previsoes['real']).abs()
+            mae = previsoes['erro_abs'].mean()
+            rmse = np.sqrt(mean_squared_error(previsoes['real'], previsoes['yhat']))  # ⬅️ RMSE
+
+            # Monta o texto de comparação
             texto = "🔎 Comparação (últimos 7 dias):\n\n"
             for i, row in previsoes.iterrows():
                 data = row['ds'].strftime("%d/%m/%Y")
                 texto += f"{data} → Previsto: {row['yhat']:.2f} kg | Real: {row['real']:.2f} kg | Erro: {row['erro_abs']:.2f}\n"
-            texto += f"\n📊 MAE (Erro Médio Absoluto): {mae:.2f} kg"
 
-            # Exibe o resultado na interface
+            texto += f"\n📊 MAE (Erro Médio Absoluto): {mae:.2f} kg"
+            texto += f"\n📈 RMSE (Erro Médio Quadrático): {rmse:.2f} kg"  # ⬅️ Exibição
+
+            # Exibe resultado
             self.result_text.delete("0.0", "end")
             self.result_text.insert("0.0", texto)
 
         except Exception as e:
-            # Exibe erro, se houver
             self.result_text.delete("0.0", "end")
             self.result_text.insert("0.0", f"Erro no teste do modelo: {str(e)}")
 
