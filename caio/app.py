@@ -27,7 +27,7 @@ DB_PATH = Path("estoque.db")
 
 # --- Configuração do Script ---
 CONFIG: Dict[str, Any] = {
-    "entrada": Path("dados_zenith.csv"),
+    "entrada": Path("dados_zenith.c sv"),
     "col_data": "data_dia",
     "col_alvo": "total_venda_dia_kg",
     "fmt_data": "%d/%m/%Y",
