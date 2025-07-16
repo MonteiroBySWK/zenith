@@ -286,32 +286,32 @@ def realizar_previsao(conn):
 def obter_lotes(conn, produto_sku):
     """
     Obtém todos os lotes de um produto específico
-    
+
     Args:
         conn: Conexão com o banco de dados
         produto_sku: SKU do produto
-    
+
     Returns:
         dict: Informações dos lotes e métricas agregadas
     """
     lotes = LoteRepository.obter_lotes_por_sku(conn, produto_sku)
-    
+
     # Calcular métricas agregadas
     total_disponivel = sum(
-        lote['quantidade_atual'] 
-        for lote in lotes 
-        if lote['status'] in ('disponivel', 'sobra')
+        lote["quantidade_atual"]
+        for lote in lotes
+        if lote["status"] in ("disponivel", "sobra")
     )
-    
-    total_inicial = sum(lote['quantidade_retirada'] for lote in lotes)
-    total_atual = sum(lote['quantidade_atual'] for lote in lotes)
-    
+
+    total_inicial = sum(lote["quantidade_retirada"] for lote in lotes)
+    total_atual = sum(lote["quantidade_atual"] for lote in lotes)
+
     # Contar lotes por status
     status_count = {}
     for lote in lotes:
-        status = lote['status']
+        status = lote["status"]
         status_count[status] = status_count.get(status, 0) + 1
-    
+
     return {
         "lotes": lotes,
         "metricas": {
@@ -319,6 +319,180 @@ def obter_lotes(conn, produto_sku):
             "total_inicial": total_inicial,
             "total_atual": total_atual,
             "quantidade_lotes": len(lotes),
-            "lotes_por_status": status_count
-        }
+            "lotes_por_status": status_count,
+        },
+    }
+
+
+def obter_metricas_dashboard(conn):
+    """Obtém métricas consolidadas e detalhadas para o dashboard"""
+    cursor = conn.cursor()
+    hoje = datetime.now().date()
+
+    # 1. Métricas gerais
+    cursor.execute("SELECT COUNT(*) FROM produto")
+    total_produtos = cursor.fetchone()[0]
+
+    cursor.execute(
+        "SELECT COALESCE(SUM(quantidade), 0) FROM venda WHERE data = ?",
+        (hoje.strftime("%Y-%m-%d"),),
+    )
+    vendas_hoje = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(quantidade_atual), 0) 
+        FROM lote 
+        WHERE status IN ('disponivel', 'sobra')
+    """
+    )
+    estoque_total = cursor.fetchone()[0]
+
+    # 2. Produtos mais vendidos (top 5)
+    cursor.execute(
+        """
+        SELECT p.sku, p.nome, SUM(v.quantidade) as total_vendido
+        FROM venda v
+        JOIN produto p ON v.produto_sku = p.sku
+        WHERE v.data >= date('now', '-7 days')
+        GROUP BY p.sku
+        ORDER BY total_vendido DESC
+        LIMIT 5
+    """
+    )
+    top_produtos = [
+        dict(zip(("sku", "nome", "total_vendido"), row)) for row in cursor.fetchall()
+    ]
+
+    # 3. Lotes próximos ao vencimento
+    cursor.execute(
+        """
+        SELECT l.id, p.nome, l.quantidade_atual, l.data_expiracao, 
+               julianday(l.data_expiracao) - julianday('now') as dias_restantes
+        FROM lote l
+        JOIN produto p ON l.produto_sku = p.sku
+        WHERE l.status IN ('disponivel', 'sobra')
+          AND dias_restantes BETWEEN 0 AND 3
+        ORDER BY dias_restantes ASC
+    """
+    )
+    lotes_proximo_vencer = []
+    for row in cursor.fetchall():
+        lotes_proximo_vencer.append(
+            {
+                "id": row[0],
+                "nome_produto": row[1],
+                "quantidade": row[2],
+                "data_expiracao": row[3],
+                "dias_restantes": int(row[4]) if row[4] else 0,
+            }
+        )
+
+    # 4. Evolução de vendas (últimos 7 dias)
+    cursor.execute(
+        """
+        SELECT date(v.data) as dia, COALESCE(SUM(v.quantidade), 0) as total
+        FROM venda v
+        WHERE v.data >= date('now', '-7 days')
+        GROUP BY dia
+        ORDER BY dia ASC
+    """
+    )
+    evolucao_vendas = [{"dia": row[0], "total": row[1]} for row in cursor.fetchall()]
+
+    # 5. Previsões de demanda (próximos 3 dias)
+    cursor.execute(
+        """
+        SELECT p.data, SUM(p.quantidade_prevista) as total_previsto
+        FROM previsao p
+        WHERE p.data BETWEEN date('now') AND date('now', '+3 days')
+        GROUP BY p.data
+        ORDER BY p.data ASC
+    """
+    )
+    previsoes = [{"data": row[0], "quantidade": row[1]} for row in cursor.fetchall()]
+
+    # 6. Status de estoque por categoria
+    cursor.execute(
+        """
+        SELECT p.categoria, 
+               SUM(l.quantidade_atual) as estoque,
+               COUNT(DISTINCT p.sku) as produtos
+        FROM lote l
+        JOIN produto p ON l.produto_sku = p.sku
+        WHERE l.status IN ('disponivel', 'sobra')
+        GROUP BY p.categoria
+    """
+    )
+    estoque_por_categoria = []
+    for row in cursor.fetchall():
+        estoque_por_categoria.append(
+            {"categoria": row[0], "estoque": row[1], "produtos": row[2]}
+        )
+
+    # 7. Alertas e notificações
+    alertas = []
+    # Alertas de estoque baixo (menos de 20% da média de vendas)
+    cursor.execute(
+        """
+        SELECT p.sku, p.nome, 
+               COALESCE(SUM(l.quantidade_atual), 0) as estoque_atual,
+               (SELECT AVG(quantidade) FROM venda WHERE produto_sku = p.sku) as media_vendas
+        FROM produto p
+        LEFT JOIN lote l ON p.sku = l.produto_sku AND l.status IN ('disponivel', 'sobra')
+        GROUP BY p.sku
+        HAVING estoque_atual < (media_vendas * 0.2)
+    """
+    )
+    for row in cursor.fetchall():
+        alertas.append(
+            {
+                "tipo": "estoque_baixo",
+                "mensagem": f"Estoque crítico: {row[1]}",
+                "sku": row[0],
+                "estoque_atual": row[2],
+                "media_vendas": row[3],
+            }
+        )
+
+    # Alertas de lotes vencendo hoje
+    cursor.execute(
+        """
+        SELECT COUNT(*) 
+        FROM lote 
+        WHERE data_expiracao = ? 
+          AND status IN ('disponivel', 'sobra')
+    """,
+        (hoje.strftime("%Y-%m-%d"),),
+    )
+    count_vencendo_hoje = cursor.fetchone()[0]
+    if count_vencendo_hoje > 0:
+        alertas.append(
+            {
+                "tipo": "vencimento_iminente",
+                "mensagem": f"{count_vencendo_hoje} lotes vencem hoje!",
+                "quantidade": count_vencendo_hoje,
+            }
+        )
+
+    return {
+        "resumo": {
+            "total_produtos": total_produtos,
+            "vendas_hoje": vendas_hoje,
+            "estoque_total": estoque_total,
+            "lotes_proximo_vencimento": len(lotes_proximo_vencer),
+            "alertas_ativos": len(alertas),
+        },
+        "detalhes": {
+            "top_produtos": top_produtos,
+            "lotes_proximo_vencer": lotes_proximo_vencer,
+            "evolucao_vendas": evolucao_vendas,
+            "previsoes_demanda": previsoes,
+            "estoque_por_categoria": estoque_por_categoria,
+        },
+        "alertas": alertas,
+        "metadados": {
+            "ultima_atualizacao": datetime.now().isoformat(),
+            "periodo_analise": "7 dias",
+        },
     }
