@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 from pathlib import Path
+import previsao
 
 # --- Configuração de Logging ---
 logging.basicConfig(
@@ -9,13 +10,15 @@ logging.basicConfig(
 )
 
 # Caminho padrão do banco
-DB_PATH = Path("estoque.db")
+DB_PATH = Path("./data/data.db")
 
 def criar_banco_e_tabelas(path_db: Path):
     """
     Cria o arquivo de banco SQLite e
     inicializa todas as tabelas necessárias.
     """
+    
+    # path_db.parent.mkdir(parents=True, exist_ok=True)  # <--- ADICIONE ESTA LINHA
     logging.info(f"Criando banco e tabelas em '{path_db}'...")
     conn = sqlite3.connect(path_db)
     c = conn.cursor()
@@ -72,8 +75,13 @@ def criar_banco_e_tabelas(path_db: Path):
     conn.close()
     logging.info("Banco e tabelas criados com sucesso.")
 
-def main():
+if __name__ == "__main__":
     criar_banco_e_tabelas(DB_PATH)
 
-if __name__ == "__main__":
-    main()
+    CSV_ZENITH_PATH = Path("./data/dados_zenith.csv")
+
+    with sqlite3.connect(DB_PATH) as conn:
+        previsao.importar_vendas_csv(conn, CSV_ZENITH_PATH)
+        previsao.prever(conn)
+
+

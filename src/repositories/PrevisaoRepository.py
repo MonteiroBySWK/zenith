@@ -38,6 +38,16 @@ def buscar_previsoes(conn: sqlite3.Connection, sku: Optional[str] = None,
         })
     return previsoes
 
+def obter_previsao(conn: sqlite3.Connection, produto_id, data_venda):
+        """Obtém a previsão de demanda para um produto em uma data específica"""
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT quantidade_prevista FROM previsao WHERE produto_id = ? AND data = ?",
+            (produto_id, data_venda.strftime("%Y-%m-%d")),
+        )
+        row = cursor.fetchone()
+        return row["quantidade_prevista"] if row else None
+
 def salvar_previsao_no_banco(conn: sqlite3.Connection, sku: str, nome_produto: str,
                               categoria_produto: str, data_prevista: pd.Timestamp,
                               quantidade_prevista: float):

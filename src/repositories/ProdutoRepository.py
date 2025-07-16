@@ -1,4 +1,3 @@
-# scripts_produto.py
 import sqlite3
 import logging
 from typing import List, Dict
