@@ -18,7 +18,6 @@ def criar_banco_e_tabelas(conn: sqlite3.Connection):
     inicializa todas as tabelas necessárias.
     """
     
-    # path_db.parent.mkdir(parents=True, exist_ok=True)  # <--- ADICIONE ESTA LINHA
     logging.info(f"Criando banco e tabelas")
     c = conn.cursor()
 
@@ -89,3 +88,5 @@ def criar_banco_e_tabelas(conn: sqlite3.Connection):
     conn.close()
     logging.info("Banco e tabelas criados com sucesso.")
 
+def povoar_banco():
+    ...

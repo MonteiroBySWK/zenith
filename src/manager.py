@@ -3,10 +3,13 @@ import sqlite3
 import numpy as np
 import logging
 from pathlib import Path
+import pandas as pd
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error # Adicionar esta linha
 
 import src.repositories.PrevisaoRepository as PrevisaoRepository
 import src.repositories.VendaRepository as VendaRepository
 import src.repositories.LoteRepository as LoteRepository
+import src.repositories.ProdutoRepository as ProdutoRepository
 
 import src.previsao as previsao
 
@@ -495,4 +498,182 @@ def obter_metricas_dashboard(conn):
             "ultima_atualizacao": datetime.now().isoformat(),
             "periodo_analise": "7 dias",
         },
+    }
+
+
+def obter_dados_relatorio_diario(conn: sqlite3.Connection) -> list:
+    """
+    Gera os dados para o relatório diário, indicando:
+    - Produtos a serem retirados hoje
+    - Produtos em processo de descongelamento
+    - Produtos já descongelados e prontos para venda
+    - Lotes com idade informada (data de retirada)
+    """
+    hoje = datetime.now().date()
+    db_conn = conn
+    dados_relatorio = []
+
+    # 1. Produtos a serem retirados hoje (baseado na previsão e cálculo de retirada)
+    produtos = ProdutoRepository.buscar_produtos(db_conn)
+    for produto in produtos:
+        sku = produto["sku"]
+        nome_produto = produto["nome"]
+        quantidade_retirar = calcular_retirada(db_conn, sku, hoje)
+        if quantidade_retirar > 0:
+            dados_relatorio.append(
+                {
+                    "categoria": "A serem retirados hoje",
+                    "sku": sku,
+                    "nome_produto": nome_produto,
+                    "quantidade_kg": round(quantidade_retirar, 2),
+                    "status_lote": "n/a",
+                    "idade_lote_dias": "n/a",
+                }
+            )
+
+    # 2. Produtos em processo de descongelamento
+    lotes_descongelando = LoteRepository.obter_lotes_por_status(
+        db_conn, "descongelando"
+    )
+    for lote in lotes_descongelando:
+        dados_relatorio.append(
+            {
+                "categoria": "Em processo de descongelamento",
+                "sku": lote["produto_sku"],
+                "nome_produto": ProdutoRepository.buscar_nome_produto(
+                    db_conn, lote["produto_sku"]
+                ),  # Assumindo uma função para buscar nome
+                "quantidade_kg": round(lote["quantidade_atual"], 2),
+                "status_lote": lote["status"],
+                "idade_lote_dias": (
+                    (hoje - lote["data_retirado"]).days
+                    if lote["data_retirado"]
+                    else "n/a"
+                ),
+            }
+        )
+
+    # 3. Produtos já descongelados e prontos para venda (status 'disponivel')
+    lotes_disponiveis = LoteRepository.obter_lotes_por_status(db_conn, "disponivel")
+    for lote in lotes_disponiveis:
+        # Filtrar apenas os que foram descongelados e estão prontos para venda
+        # A lógica de "pronto para venda" é que já passou pelo lead time e está disponível.
+        # Poderíamos ter um status mais específico como 'pronto_venda' ou inferir pela data_venda no lote.
+        # Para este exemplo, consideraremos 'disponivel' como pronto para venda.
+        dados_relatorio.append(
+            {
+                "categoria": "Prontos para venda",
+                "sku": lote["produto_sku"],
+                "nome_produto": ProdutoRepository.buscar_nome_produto(
+                    db_conn, lote["produto_sku"]
+                ),
+                "quantidade_kg": round(lote["quantidade_atual"], 2),
+                "status_lote": lote["status"],
+                "idade_lote_dias": (
+                    (hoje - lote["data_retirado"]).days
+                    if lote["data_retirado"]
+                    else "n/a"
+                ),
+            }
+        )
+
+    # 4. Lotes com idade de lote informada (todos os lotes ativos com data de retirada)
+    # Já estão incluídos nas categorias acima, mas podemos ter uma seção separada ou mais detalhada se necessário.
+    # Por simplicidade, vamos garantir que todos os lotes ativos com data de retirada apareçam.
+    lotes_ativos = LoteRepository.obter_todos_lotes_ativos(
+        db_conn
+    )  # Assumindo função para buscar todos os lotes ativos
+    for lote in lotes_ativos:
+        idade_lote = (
+            (hoje - lote["data_retirado"]).days if lote["data_retirado"] else "n/a"
+        )
+        # Evita duplicidade se já listado em outras categorias mais específicas
+        if {
+            "categoria": "Todos os lotes ativos",  # Nova categoria para lotes gerais
+            "sku": lote["produto_sku"],
+            "nome_produto": ProdutoRepository.buscar_nome_produto(
+                db_conn, lote["produto_sku"]
+            ),
+            "quantidade_kg": round(lote["quantidade_atual"], 2),
+            "status_lote": lote["status"],
+            "idade_lote_dias": idade_lote,
+        } not in dados_relatorio:
+            dados_relatorio.append(
+                {
+                    "categoria": "Todos os lotes ativos",
+                    "sku": lote["produto_sku"],
+                    "nome_produto": ProdutoRepository.buscar_nome_produto(
+                        db_conn, lote["produto_sku"]
+                    ),
+                    "quantidade_kg": round(lote["quantidade_atual"], 2),
+                    "status_lote": lote["status"],
+                    "idade_lote_dias": idade_lote,
+                }
+            )
+
+    return dados_relatorio
+
+
+def obter_metricas_previsao(conn: sqlite3.Connection, dias_comparacao: int = 30):
+    """
+    Calcula e retorna as métricas de validação do modelo de previsão (MAPE, RMSE).
+    Compara previsões com vendas reais dos últimos `dias_comparacao` dias.
+    """
+    cursor = conn.cursor()
+
+    # Carregar vendas reais
+    query_reais = """
+        SELECT data, quantidade as real
+        FROM venda
+        WHERE data >= date('now', ?)
+        ORDER BY data
+    """
+    df_reais = pd.read_sql_query(query_reais, conn, params=[f"-{dias_comparacao} days"])
+    df_reais["data"] = pd.to_datetime(df_reais["data"])
+
+    # Carregar previsões
+    query_previsto = """
+        SELECT data, quantidade_prevista as previsto
+        FROM previsao
+        WHERE data >= date('now', ?)
+        ORDER BY data
+    """
+    df_previsto = pd.read_sql_query(
+        query_previsto, conn, params=[f"-{dias_comparacao} days"]
+    )
+    df_previsto["data"] = pd.to_datetime(df_previsto["data"])
+
+    # Combinar dados reais e previsões
+    df_merged = pd.merge(df_reais, df_previsto, on="data", how="inner")
+
+    if df_merged.empty:
+        logging.warning(
+            "Nenhuma data coincidente entre previsões e dados reais para o período."
+        )
+        return {
+            "mape": None,
+            "rmse": None,
+            "ultima_atualizacao": datetime.now().isoformat(),
+            "message": "Dados insuficientes para calcular métricas.",
+        }
+
+    # Assegurar que os arrays são numpy para os cálculos
+    reais = df_merged["real"].values
+    previstos = df_merged["previsto"].values
+
+    # Calcular RMSE
+    rmse = np.sqrt(mean_squared_error(reais, previstos))
+
+    # Calcular MAPE
+    # Evitar divisão por zero para quantidade_real
+    # A implementação de mean_absolute_percentage_error do sklearn lida com zeros
+    mape = mean_absolute_percentage_error(reais, previstos) * 100
+
+    ultima_atualizacao = datetime.now().isoformat()
+
+    return {
+        "mape": mape,
+        "rmse": rmse,
+        "ultima_atualizacao": ultima_atualizacao,
+        "periodo_comparacao_dias": dias_comparacao,
     }

@@ -53,7 +53,7 @@ def close_connection(exception):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("pages/index.html")
 
 
 @app.route("/api/dashboard", methods=["GET"])
@@ -375,6 +375,129 @@ def registrar_venda_rota(produto_sku: str):
 
     status_code = 201 if quantidade_vendida > 0 else 404
     return jsonify(response), status_code
+
+
+@app.route("/api/vendas/historico/upload", methods=["POST"])
+@swag_from(
+    {
+        "tags": ["Vendas"],
+        "description": "Faz o upload de um arquivo com dados históricos de vendas para ingestão.",
+        "parameters": [
+            {
+                "name": "file",
+                "in": "formData",
+                "type": "file",
+                "required": True,
+                "description": "Arquivo CSV ou Excel com dados históricos de vendas.",
+            }
+        ],
+        "responses": {
+            200: {"description": "Dados históricos de vendas importados com sucesso."},
+            400: {"description": "Nenhum arquivo enviado ou formato inválido."},
+        },
+    }
+)
+def upload_historico_vendas():
+    if "file" not in request.files:
+        return jsonify({"error": "Nenhum arquivo enviado"}), 400
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "Nenhum arquivo selecionado"}), 400
+    if file and (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
+        df = (
+            pd.read_csv(file) if file.filename.endswith(".csv") else pd.read_excel(file)
+        )
+        db_conn = get_db()
+        Manager.importar_historico_vendas(db_conn, df)  # Nova função no Manager
+        return (
+            jsonify({"message": "Dados históricos de vendas importados com sucesso."}),
+            200,
+        )
+    else:
+        return (
+            jsonify({"error": "Formato de arquivo não suportado. Use .csv ou .xlsx"}),
+            400,
+        )
+
+
+@app.route("/api/relatorio-diario", methods=["GET"])
+@swag_from(
+    {
+        "tags": ["Relatórios"],
+        "description": "Gera um relatório diário de status de produtos e lotes.",
+        "responses": {
+            200: {
+                "description": "Relatório diário gerado com sucesso.",
+                "examples": {
+                    "application/json": [
+                        {
+                            "categoria": "A serem retirados hoje",
+                            "sku": "237478",
+                            "nome_produto": "FILE DE PEITO FGO INTERF CONG KG",
+                            "quantidade_kg": 50.0,
+                            "status_lote": "n/a",
+                            "idade_lote_dias": "n/a",
+                        },
+                        {
+                            "categoria": "Em processo de descongelamento",
+                            "sku": "237479",
+                            "nome_produto": "ASA DE FGO INTERF CONG KG",
+                            "quantidade_kg": 20.0,
+                            "status_lote": "descongelando",
+                            "idade_lote_dias": 1,
+                        },
+                    ]
+                },
+            }
+        },
+    }
+)
+def obter_relatorio_diario_rota():
+    db_conn = get_db()
+    relatorio = Manager.obter_dados_relatorio_diario(db_conn)
+    return jsonify(relatorio), 200
+
+
+@app.route("/api/metricas-previsao", methods=["GET"])
+@swag_from(
+    {
+        "tags": ["Relatórios"],
+        "parameters": [
+            {
+                "name": "dias_comparacao",
+                "in": "query",
+                "type": "integer",
+                "required": False,
+                "default": 30,
+                "description": "Número de dias para comparar previsões (padrão: 30).",
+            }
+        ],
+        "description": "Calcula e retorna as métricas de validação do modelo de previsão (MAPE, RMSE).",
+        "responses": {
+            200: {
+                "description": "Métricas de previsão calculadas com sucesso.",
+                "examples": {
+                    "application/json": {
+                        "mape": 12.5,
+                        "rmse": 15.7,
+                        "ultima_atualizacao": "2023-07-16T15:00:00.000000",
+                        "periodo_comparacao_dias": 30,
+                    }
+                },
+            }
+        },
+    }
+)
+def obter_metricas_previsao_rota():
+    db_conn = get_db()
+    dias_comparacao_str = request.args.get("dias_comparacao", "30")
+    try:
+        dias_comparacao = int(dias_comparacao_str)
+    except ValueError:
+        return jsonify({"error": "dias_comparacao deve ser um número inteiro."}), 400
+
+    metricas = Manager.obter_metricas_previsao(db_conn, dias_comparacao)
+    return jsonify(metricas), 200
 
 
 if __name__ == "__main__":
