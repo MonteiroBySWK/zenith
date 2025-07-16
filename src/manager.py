@@ -165,6 +165,7 @@ def executar_fluxo_diario(conn, produto_id):
 
         # 4. (Opcional) Simular vendas do dia
         # Em produção, isso seria feito no final do dia com dados reais
+        # fazer um jeito de trazer as vendas do dia
         registrar_venda(conn, produto_id, data_hoje, 50.0)
 
         return True
@@ -180,28 +181,3 @@ def fechar(conn, self):
 def realizar_previsao(conn, self):
     previsao.importar_vendas_csv(conn, Path("src/data/dados_zenith.csv"))
     previsao.prever(conn)
-
-
-# Exemplo de uso (Não usar mais)
-if __name__ == "__main__":
-    ...
-    # try:
-    #     # Supondo que temos um produto com ID 1
-    #     produto_id = "237478"
-
-    #     # Executar fluxo diário
-    #     sucesso = executar_fluxo_diario(produto_id)
-
-    #     if sucesso:
-    #         # Obter relatório de lotes atualizados
-    #         cursor = conn.cursor()
-    #         cursor.execute("SELECT * FROM lote WHERE produto_id = ?", (produto_id,))
-    #         lotes = cursor.fetchall()
-
-    #         print("\nLotes atuais:")
-    #         for lote in lotes:
-    #             print(
-    #                 f"ID: {lote['id']}, Status: {lote['status']}, Quantidade: {lote['quantidade_atual']}kg"
-    #             )
-    # finally:
-    #     fechar()
