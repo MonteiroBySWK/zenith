@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 from queue import Queue
-from typing import Dict
+from typing import Dict, List
 from datetime import datetime, timedelta
 
 
@@ -34,8 +34,8 @@ def buscar_lotes_por_produto_em_fila(
     lotes_para_consumo.sort(
         key=lambda x: (
             0 if x["status"] == "sobra" else 1,  # sobras primeiro
-            x["quantidade_atual"],                # menor quantidade
-            x["data_retirado"],                   # mais antigo
+            x["quantidade_atual"],  # menor quantidade
+            x["data_retirado"],  # mais antigo
         )
     )
 
@@ -188,7 +188,111 @@ def obter_lotes_por_sku(conn, produto_sku):
                 lote["data_retirado"], "%Y-%m-%d"
             ).date()
         if lote["data_venda"]:
-            lote["data_venda"] = datetime.strptime(lote["data_venda"], "%Y-%m-%d").date()
+            lote["data_venda"] = datetime.strptime(
+                lote["data_venda"], "%Y-%m-%d"
+            ).date()
+        lotes.append(lote)
+
+    return lotes
+
+
+def obter_lotes_por_status(conn: sqlite3.Connection, status: str):
+    """
+    Retorna todos os lotes com um determinado status.
+
+    Args:
+        conn: Conexão com o banco de dados.
+        status: O status dos lotes a serem buscados (ex: 'disponivel', 'descongelando', 'sobra', 'perda', 'vendido').
+
+    Returns:
+        list: Uma lista de dicionários, onde cada dicionário representa um lote.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            id,
+            produto_sku,
+            quantidade_retirada,
+            quantidade_atual,
+            status,
+            data_retirado,
+            data_venda,
+            data_expiracao
+        FROM lote
+        WHERE status = ?
+        ORDER BY data_retirado DESC
+        """,
+        (status,),
+    )
+
+    colunas = [description[0] for description in cursor.description]
+    lotes = []
+
+    for row in cursor.fetchall():
+        lote = dict(zip(colunas, row))
+        if lote["data_retirado"]:
+            lote["data_retirado"] = datetime.strptime(
+                lote["data_retirado"], "%Y-%m-%d"
+            ).date()
+        if lote["data_venda"]:
+            lote["data_venda"] = datetime.strptime(
+                lote["data_venda"], "%Y-%m-%d"
+            ).date()
+        if lote["data_expiracao"]:
+            lote["data_expiracao"] = datetime.strptime(
+                lote["data_expiracao"], "%Y-%m-%d"
+            ).date()
+        lotes.append(lote)
+
+    return lotes
+
+
+def obter_todos_lotes_ativos(conn: sqlite3.Connection) -> List[Dict]:
+    """
+    Retorna todos os lotes que estão em status 'descongelando', 'disponivel' ou 'sobra'.
+
+    Args:
+        conn: Conexão com o banco de dados.
+
+    Returns:
+        list: Uma lista de dicionários, onde cada dicionário representa um lote ativo.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            id,
+            produto_sku,
+            quantidade_retirada,
+            quantidade_atual,
+            status,
+            data_retirado,
+            data_venda,
+            data_expiracao
+        FROM lote
+        WHERE status IN ('descongelando', 'disponivel', 'sobra')
+        ORDER BY data_retirado DESC
+        """
+    )
+
+    colunas = [description[0] for description in cursor.description]
+    lotes = []
+
+    for row in cursor.fetchall():
+        lote = dict(zip(colunas, row))
+        if lote["data_retirado"]:
+            lote["data_retirado"] = datetime.strptime(
+                lote["data_retirado"], "%Y-%m-%d"
+            ).date()
+        if lote["data_venda"]:
+            lote["data_venda"] = datetime.strptime(
+                lote["data_venda"], "%Y-%m-%d"
+            ).date()
+        if lote["data_expiracao"]:
+            lote["data_expiracao"] = datetime.strptime(
+                lote["data_expiracao"], "%Y-%m-%d"
+            ).date()
         lotes.append(lote)
 
     return lotes
