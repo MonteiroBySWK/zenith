@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 import src.previsao
 from datetime import datetime, timedelta
+import random
 
 # --- Configuração de Logging ---
 logging.basicConfig(
@@ -93,6 +94,16 @@ def criar_banco_e_tabelas(conn: sqlite3.Connection):
             produto_sku TEXT NOT NULL,
             FOREIGN KEY (produto_sku) REFERENCES produto(sku),
             UNIQUE (produto_sku, data)  -- evita duplicidade de previsão por produto e data
+        )
+    """
+    )
+
+    # Nova tabela para controlar a execução de rotas
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS controle_execucao_rotas (
+            nome_rota TEXT PRIMARY KEY,
+            ultima_execucao DATE NOT NULL
         )
     """
     )

@@ -4,7 +4,7 @@ from flasgger import Swagger, swag_from
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
-from flask_cors import CORS # Importe Flask-Cors
+from flask_cors import CORS  # Importe Flask-Cors
 import src.manager as Manager
 import src.database as Database
 
@@ -149,9 +149,70 @@ def resumo_sistema():
     return jsonify(data), 200
 
 
-@app.route("/api/retirada/all", methods=["POST"])
-def retirar_todos_skus():
-    ...
+# NOVA ROTA: Executar fluxo diário para todos os SKUs uma vez por dia
+@app.route("/api/fluxo-diario-todos-skus", methods=["POST"])
+@swag_from(
+    {
+        "tags": ["Administração"],
+        "description": "Executa o fluxo diário (atualização de status de lotes e cálculo de retirada) para TODOS os SKUs. Esta rota só pode ser executada uma vez por dia.",
+        "responses": {
+            200: {
+                "description": "Fluxo diário para todos os SKUs executado com sucesso.",
+                "examples": {
+                    "application/json": {
+                        "message": "Fluxo diário para todos os SKUs concluído com sucesso."
+                    }
+                },
+            },
+            403: {
+                "description": "Requisição negada: rota já foi executada hoje.",
+                "examples": {
+                    "application/json": {
+                        "message": "Fluxo diário para todos os SKUs já foi executado hoje. Tente novamente amanhã."
+                    }
+                },
+            },
+            500: {"description": "Erro interno ao executar o fluxo diário."},
+        },
+    }
+)
+def executar_fluxo_todos_skus_rota():
+    db_conn = get_db()
+    nome_rota = "executar_fluxo_diario_todos_skus"
+
+    try:
+        pode_executar = Manager.verificar_e_registrar_execucao_rota(db_conn, nome_rota)
+        if not pode_executar:
+            return (
+                jsonify(
+                    {
+                        "message": "Fluxo diário para todos os SKUs já foi executado hoje. Tente novamente amanhã."
+                    }
+                ),
+                403,
+            )
+
+        sucesso = Manager.executar_fluxo_diario_todos_skus(db_conn)
+        if sucesso:
+            return (
+                jsonify(
+                    {
+                        "message": "Fluxo diário para todos os SKUs concluído com sucesso."
+                    }
+                ),
+                200,
+            )
+        else:
+            return (
+                jsonify(
+                    {"message": "Erro ao executar o fluxo diário para todos os SKUs."}
+                ),
+                500,
+            )
+    except Exception as e:
+        app.logger.error(f"Erro na rota /api/fluxo-diario-todos-skus: {e}")
+        return jsonify({"message": f"Erro interno: {str(e)}"}), 500
+
 
 @app.route("/api/retirada/<string:produto_sku>", methods=["POST"])
 @swag_from(
@@ -533,6 +594,92 @@ def obter_metricas_previsao_rota():
 
     metricas = Manager.obter_metricas_previsao(db_conn, dias_comparacao)
     return jsonify(metricas), 200
+
+
+@app.route("/api/gerar-vendas-aleatorias", methods=["POST"])
+@swag_from(
+    {
+        "tags": ["Dados de Teste"],  # Usando a nova tag "Dados de Teste"
+        "description": "Gera dados de vendas aleatórias para todos os produtos por um período de dias, ideal para testes e simulações. Esta operação pode inserir ou atualizar dados de vendas existentes.",
+        "parameters": [
+            {
+                "name": "body",
+                "in": "body",
+                "required": True,
+                "schema": {
+                    "type": "object",
+                    "required": ["data_inicio", "dias"],
+                    "properties": {
+                        "data_inicio": {
+                            "type": "string",
+                            "format": "date",
+                            "description": "Data de início da geração das vendas (YYYY-MM-DD).",
+                            "example": "2024-01-01",
+                        },
+                        "dias": {
+                            "type": "integer",
+                            "description": "Número de dias para gerar vendas a partir da data de início.",
+                            "example": 30,
+                        },
+                    },
+                },
+            }
+        ],
+        "responses": {
+            200: {
+                "description": "Vendas aleatórias geradas com sucesso.",
+                "examples": {
+                    "application/json": {
+                        "message": "Vendas aleatórias geradas com sucesso para 30 dias a partir de 2024-01-01."
+                    }
+                },
+            },
+            400: {"description": "Dados de requisição inválidos."},
+            500: {"description": "Erro interno ao gerar vendas aleatórias."},
+        },
+    }
+)
+def gerar_vendas_aleatorias_rota():
+    data = request.get_json()
+    data_inicio_str = data.get("data_inicio")
+    dias = data.get("dias")
+
+    if not all([data_inicio_str, isinstance(dias, int) and dias > 0]):
+        return (
+            jsonify(
+                {
+                    "error": "Dados incompletos ou inválidos. data_inicio (YYYY-MM-DD) e dias (int > 0) são obrigatórios."
+                }
+            ),
+            400,
+        )
+
+    try:
+        # Tenta converter a data para verificar o formato
+        datetime.strptime(data_inicio_str, "%Y-%m-%d").date()
+    except ValueError:
+        return (
+            jsonify({"error": "Formato de data_inicio inválido. Use YYYY-MM-DD."}),
+            400,
+        )
+
+    db_conn = get_db()
+    try:
+        Manager.gerar_vendas_aleatorias(db_conn, data_inicio_str, dias)
+        return (
+            jsonify(
+                {
+                    "message": f"Vendas aleatórias geradas com sucesso para {dias} dias a partir de {data_inicio_str}."
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        app.logger.error(f"Erro ao gerar vendas aleatórias: {e}")
+        return (
+            jsonify({"error": f"Erro interno ao gerar vendas aleatórias: {str(e)}"}),
+            500,
+        )
 
 
 if __name__ == "__main__":
