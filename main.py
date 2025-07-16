@@ -4,15 +4,18 @@ from flasgger import Swagger, swag_from
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
-
+from flask_cors import CORS # Importe Flask-Cors
 import src.manager as Manager
 import src.database as Database
 
 import sqlite3
 
+
 DATABASE = "src/data/data.db"
 
 app = Flask(__name__)
+CORS(app)
+
 swagger = Swagger(
     app,
     template={
@@ -146,6 +149,10 @@ def resumo_sistema():
     return jsonify(data), 200
 
 
+@app.route("/api/retirada/all", methods=["POST"])
+def retirar_todos_skus():
+    ...
+
 @app.route("/api/retirada/<string:produto_sku>", methods=["POST"])
 @swag_from(
     {
@@ -172,7 +179,7 @@ def resumo_sistema():
         },
     }
 )
-def executar_fluxo_diario(produto_sku):
+def retirar_por_sku(produto_sku):
     db_conn = get_db()
     sucesso = Manager.executar_fluxo_diario(db_conn, produto_sku)
     if sucesso:
