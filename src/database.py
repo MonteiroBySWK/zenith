@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 from pathlib import Path
-import previsao
+import src.previsao
 
 # --- Configuração de Logging ---
 logging.basicConfig(
@@ -74,7 +74,4 @@ def criar_banco_e_tabelas(path_db: Path):
     conn.commit()
     conn.close()
     logging.info("Banco e tabelas criados com sucesso.")
-
-if __name__ == "__main__":
-    criar_banco_e_tabelas(DB_PATH)
 

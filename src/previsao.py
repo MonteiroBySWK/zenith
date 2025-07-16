@@ -166,3 +166,6 @@ def prever(conn: sqlite3.Connection):
         previsoes = treinar_e_prever(df)
         salvar_previsoes(conn, sku, nome, previsoes)
         logging.info(f"Previsões salvas no banco para SKU={sku}")
+
+def executar_rotina_previsao(conn: sqlite3.Connection):
+    prever(conn)

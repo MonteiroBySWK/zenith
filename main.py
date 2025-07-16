@@ -1,11 +1,38 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, g
 from flask.json import jsonify
-from src.Manager import ManagerSystem
-
+from flasgger import Swagger, swag_from
 import pandas as pd
+from pathlib import Path
+
+import src.manager as Manager
+import src.database as Database
+
+import sqlite3
+
+DATABASE = "src/data/data.db"
 
 app = Flask(__name__)
-manager = ManagerSystem()
+swagger = Swagger(app)
+
+def get_db():
+    """
+    Abre uma nova conexão com o banco de dados se não houver uma ativa 
+    no contexto desta requisição.
+    """
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row # Permite acessar colunas pelo nome
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    """
+    Fecha a conexão com o banco de dados automaticamente ao final da requisição.
+    """
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
 
 @app.route("/")
@@ -67,15 +94,21 @@ def dashboard():
 
 @app.route('/api/retirada/<int:produto_id>', methods=['POST'])
 def executar_fluxo_diario(produto_id):
-    sucesso = manager.executar_fluxo_diario(produto_id)
+    db_conn = get_db() # 1. Pega a conexão segura para a requisição
+    sucesso = Manager.executar_fluxo_diario(db_conn, produto_id)
     if sucesso:
         return jsonify({"message": "Fluxo diário executado com sucesso."}), 200
     else:
         return jsonify({"message": "Erro ao executar o fluxo diário."}), 500
 
+@app.route('/api/registrar-venda')
+def venda():
+    ...
+
+# Isso provavelmente tá errado
 @app.route('/api/lotes/<int:produto_id>', methods=['GET'])
 def obter_lotes(produto_id):
-    cursor = manager.conn.cursor()
+    cursor = Manager.conn.cursor()
     cursor.execute("SELECT * FROM lote WHERE produto_id = ?", (produto_id,))
     lotes = cursor.fetchall()
     return jsonify([dict(lote) for lote in lotes]), 200
@@ -83,7 +116,7 @@ def obter_lotes(produto_id):
 @app.route('/api/criar_db', methods=['POST'])
 def criar_banco():
     db_path = Path("estoque.db")
-    manager.criar_banco_e_tabelas(db_path)
+    Database.criar_banco_e_tabelas(db_path)
     return jsonify({"message": "Banco de dados criado com sucesso."}), 201
 
 if __name__ == '__main__':
