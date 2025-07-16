@@ -7,16 +7,13 @@ def salvar_venda_no_banco(
     conn: sqlite3.Connection, sku: str, data_venda: str, quantidade: float
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM produto WHERE sku = ?", (sku,))
-    resultado = cursor.fetchone()
-
-    if not resultado:
+    cursor.execute("SELECT sku FROM produto WHERE sku = ?", (sku,))
+    if not cursor.fetchone():
         return
 
-    produto_id = resultado[0]
     cursor.execute(
-        "INSERT INTO venda (data, quantidade, produto_id) VALUES (?, ?, ?)",
-        (data_venda, quantidade, produto_id),
+        "INSERT INTO venda (data, quantidade, produto_sku) VALUES (?, ?, ?)",
+        (data_venda, quantidade, sku),
     )
     conn.commit()
 
@@ -33,11 +30,11 @@ def buscar_total_vendido_no_dia(
     return resultado[0] if resultado[0] else 0.0
 
 
-def obter_demanda_media(conn: sqlite3.Connection, produto_id):
+def obter_demanda_media(conn: sqlite3.Connection, produto_sku):
     """Calcula a demanda média do produto"""
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT AVG(quantidade) FROM venda WHERE produto_id = ?", (produto_id,)
+        "SELECT AVG(quantidade) FROM venda WHERE produto_sku = ?", (produto_sku,)
     )
     row = cursor.fetchone()
     return row[0] if row[0] else 0.0

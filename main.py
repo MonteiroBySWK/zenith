@@ -115,8 +115,8 @@ def obter_lotes(produto_id):
 
 @app.route('/api/criar_db', methods=['POST'])
 def criar_banco():
-    db_path = Path("estoque.db")
-    Database.criar_banco_e_tabelas(db_path)
+    db_conn = get_db() # 1. Pega a conexão segura para a requisição
+    Database.criar_banco_e_tabelas(db_conn)
     return jsonify({"message": "Banco de dados criado com sucesso."}), 201
 
 if __name__ == '__main__':
