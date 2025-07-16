@@ -658,53 +658,78 @@ def importar_historico_vendas_do_string_csv(conn: sqlite3.Connection, csv_conten
     """
     logging.info("Iniciando importação de vendas do conteúdo CSV em string.")
     try:
-        # Usar StringIO para ler a string como se fosse um arquivo
         csv_file_like_object = io.StringIO(csv_content)
-        df_vendas = pd.read_csv(csv_file_like_object)
+        df_vendas = pd.read_csv(
+            csv_file_like_object, encoding="latin1", sep=","
+        )  # Adicione codificação e separador se necessário
 
-        # Garantir que as colunas essenciais existem
+        # Renomeie as colunas para corresponder ao esquema do banco de dados esperado
+        df_vendas = df_vendas.rename(
+            columns={
+                "data_dia": "data",
+                "id_produto": "produto_sku",
+                "total_venda_dia_kg": "quantidade",
+            }
+        )
+
+        # Garanta que as colunas essenciais agora existam após a renomeação
         required_columns = ["data", "produto_sku", "quantidade"]
         if not all(col in df_vendas.columns for col in required_columns):
             raise ValueError(
-                f"CSV missing required columns. Expected: {required_columns}"
+                f"CSV faltando colunas necessárias após a renomeação. Esperado: {required_columns}, Encontrado: {df_vendas.columns.tolist()}"
             )
 
-        # Converter a coluna 'data' para datetime e formatar para o banco de dados
-        df_vendas["data"] = pd.to_datetime(df_vendas["data"]).dt.strftime("%Y-%m-%d")
+        # Converta a coluna 'data' para datetime e formate para o banco de dados
+        df_vendas["data"] = pd.to_datetime(
+            df_vendas["data"], dayfirst=True
+        ).dt.strftime("%Y-%m-%d")
+        # Nota: dayfirst=True é importante se o formato de data_dia for DD/MM/AAAA
 
         cursor = conn.cursor()
         for index, row in df_vendas.iterrows():
             try:
                 # Primeiro, verifique se o produto_sku existe na tabela de produtos
                 cursor.execute(
-                    "SELECT sku FROM produto WHERE sku = ?", (row["produto_sku"],)
+                    "SELECT sku FROM produto WHERE sku = ?",
+                    (str(row["produto_sku"]),),  # Garanta que o SKU seja string
                 )
                 if cursor.fetchone() is None:
+                    # Tente criar o produto se ele não existir, usando 'descricao_produto' para o nome e 'Equipe responsável' para a categoria.
+                    # Você precisaria passar 'descricao_produto' e 'Equipe responsável' do df original para esta função ou buscá-los.
+                    # Para simplificar, se essas colunas não forem estritamente necessárias na tabela 'venda', você pode omiti-las aqui.
+                    # No entanto, se você quiser criar produtos dinamicamente, você precisaria da 'descricao_produto' e 'Equipe responsável' originais.
+                    # Por enquanto, para este erro específico, vamos nos concentrar nas colunas para 'venda'.
+
+                    # Como uma solução alternativa para este erro específico, vamos apenas registrar e pular se o produto não for encontrado.
+                    # Uma solução melhor pode ser chamar uma função de criação de produto aqui se você espera novos produtos.
                     logging.warning(
-                        f"Produto SKU '{row['produto_sku']}' não encontrado. Ignorando venda."
+                        f"SKU do produto '{row['produto_sku']}' não encontrado. Pulando a venda. Por favor, certifique-se de que os produtos estejam pré-importados."
                     )
                     continue
 
-                # Inserir ou atualizar a venda
-                # Considerar se deve ser INSERT OR REPLACE ou INSERT, dependendo da lógica
+                # Insira ou atualize a venda
                 cursor.execute(
                     """
                     INSERT INTO venda (data, quantidade, produto_sku)
                     VALUES (?, ?, ?)
                     ON CONFLICT(data, produto_sku) DO UPDATE SET quantidade = excluded.quantidade
                     """,
-                    (row["data"], row["quantidade"], row["produto_sku"]),
+                    (
+                        row["data"],
+                        row["quantidade"],
+                        str(row["produto_sku"]),
+                    ),  # Garanta que o SKU seja string
                 )
             except sqlite3.Error as e:
                 logging.error(
                     f"Erro ao inserir venda para SKU {row['produto_sku']} na data {row['data']}: {e}"
                 )
-                # Dependendo da sua necessidade, você pode querer levantar a exceção ou continuar
+                # Dependendo das suas necessidades, você pode querer relançar a exceção ou continuar
 
         conn.commit()
-        logging.info("Importação de vendas do CSV em string concluída com sucesso.")
+        logging.info("Importação de vendas da string CSV concluída com sucesso.")
 
     except Exception as e:
         conn.rollback()
-        logging.error(f"Erro durante a importação de vendas do CSV em string: {e}")
-        raise  # Re-raise para que o chamador possa lidar com o erro
+        logging.error(f"Erro durante a importação de vendas da string CSV: {e}")
+        raise  # Relançar para que o chamador possa lidar com o erro
