@@ -9,6 +9,7 @@ from sklearn.metrics import (
     mean_absolute_percentage_error,
 )  # Adicionar esta linha
 
+import random
 import io
 import src.repositories.PrevisaoRepository as PrevisaoRepository
 import src.repositories.VendaRepository as VendaRepository
@@ -735,3 +736,120 @@ def importar_historico_vendas_do_string_csv(conn: sqlite3.Connection, csv_conten
         conn.rollback()
         logging.error(f"Erro durante a importação de vendas da string CSV: {e}")
         raise  # Relançar para que o chamador possa lidar com o erro
+
+
+# NOVA FUNÇÂO
+def executar_fluxo_diario_todos_skus(conn: sqlite3.Connection) -> bool:
+    """
+    Executa o fluxo diário (atualização de status e cálculo de retirada)
+    para todos os SKUs de produtos no banco de dados.
+    """
+    logging.info("Iniciando execução do fluxo diário para todos os SKUs.")
+    produtos = ProdutoRepository.buscar_produtos(conn)  #
+
+    sucesso_geral = True
+    for produto in produtos:
+        sku = produto["sku"]
+        if not executar_fluxo_diario(conn, sku):
+            logging.error(f"Falha na execução do fluxo diário para SKU: {sku}")
+            sucesso_geral = False
+            # Continua para o próximo SKU mesmo que um falhe
+
+    if sucesso_geral:
+        logging.info("Fluxo diário para todos os SKUs concluído com sucesso.")
+    else:
+        logging.warning("Fluxo diário para todos os SKUs concluído com algumas falhas.")
+
+    return sucesso_geral
+
+
+# NOVA FUNÇÃO: Verifica e registra a última execução de uma rota
+def verificar_e_registrar_execucao_rota(
+    conn: sqlite3.Connection, nome_rota: str
+) -> bool:
+    """
+    Verifica se uma rota já foi executada hoje. Se sim, retorna False.
+    Caso contrário, registra a execução e retorna True.
+    """
+    cursor = conn.cursor()
+    data_hoje_str = datetime.now().date().isoformat()
+
+    cursor.execute(
+        "SELECT ultima_execucao FROM controle_execucao_rotas WHERE nome_rota = ?",
+        (nome_rota,),
+    )
+    resultado = cursor.fetchone()
+
+    if resultado:
+        ultima_execucao_str = resultado[0]
+        if ultima_execucao_str == data_hoje_str:
+            logging.info(f"Rota '{nome_rota}' já foi executada hoje.")
+            return False  # Já foi executada hoje
+        else:
+            # Atualiza a data de execução
+            cursor.execute(
+                "UPDATE controle_execucao_rotas SET ultima_execucao = ? WHERE nome_rota = ?",
+                (data_hoje_str, nome_rota),
+            )
+            logging.info(f"Rota '{nome_rota}' executada e data atualizada para hoje.")
+            conn.commit()
+            return True
+    else:
+        # Insere um novo registro para a rota
+        cursor.execute(
+            "INSERT INTO controle_execucao_rotas (nome_rota, ultima_execucao) VALUES (?, ?)",
+            (nome_rota, data_hoje_str),
+        )
+        logging.info(
+            f"Rota '{nome_rota}' executada e registrada pela primeira vez hoje."
+        )
+        conn.commit()
+        return True
+
+
+def gerar_vendas_aleatorias(conn: sqlite3.Connection, data_inicio: str, dias: int = 7):
+    """
+    Gera vendas aleatórias para os produtos existentes, durante 'dias' a partir de data_inicio.
+    """
+    cursor = conn.cursor()
+
+    # Obter todos os SKUs
+    cursor.execute("SELECT sku FROM produto")
+    skus = [row[0] for row in cursor.fetchall()]
+
+    data_atual = datetime.strptime(
+        data_inicio, "%Y-%m-%d"
+    ).date()  # Convert to date object
+
+    for i in range(dias):
+        data_str = (data_atual + timedelta(days=i)).strftime("%Y-%m-%d")
+        for sku in skus:
+            # Certifique-se de que a quantidade gerada é razoável e não zera.
+            # Se a quantidade gerada for 0, o ON CONFLICT ainda pode tentar inserir,
+            # mas uma venda de 0kg pode não ser o que se espera.
+            quantidade = round(
+                random.uniform(100.0, 120.0), 2
+            )  # Quantidade entre 100kg e 120kg
+
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO venda (data, quantidade, produto_sku)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(data, produto_sku) DO UPDATE SET quantidade = excluded.quantidade
+                """,
+                    (data_str, quantidade, sku),
+                )
+                logging.info(
+                    f"Inserido/Atualizado venda aleatória: {data_str}, {sku}, {quantidade}kg"
+                )
+            except sqlite3.Error as e:
+                logging.error(
+                    f"Erro ao inserir venda aleatória para SKU {sku} na data {data_str}: {e}"
+                )
+                # Continue para o próximo, não abortar tudo por um único erro de inserção
+
+    conn.commit()
+    logging.info(
+        f"Vendas aleatórias geradas com sucesso para {dias} dias a partir de {data_inicio}."
+    )
