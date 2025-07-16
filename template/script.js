@@ -1,3 +1,5 @@
+// Dashboard atualizado com dados reais da API
+
 const input = document.querySelector('input[type="file"]');
 const btn = document.querySelector("button");
 const result = document.querySelector("#result");
@@ -27,8 +29,87 @@ async function atualizarKPIs(sku) {
   }
 }
 
-// Exemplo de uso com SKU padrão (pode ser dinâmico)
+// Novo: gráfico de linha e barras com base na API /api/dashboard
+async function carregarDashboard() {
+  try {
+    const res = await fetch("http://localhost:5000/api/dashboard");
+    const data = await res.json();
+
+    if (ctxLine) {
+      const vendas = data.detalhes.evolucao_vendas;
+      const previsao = data.detalhes.previsoes_demanda;
+
+      const labels = vendas.map(v => v.dia);
+      const dadosReais = vendas.map(v => v.total);
+      const dadosPrevistos = previsao.map(p => p.quantidade);
+
+      new Chart(ctxLine, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "Vendas Reais",
+              data: dadosReais,
+              borderColor: "#1f2937",
+              tension: 0.3
+            },
+            {
+              label: "Previsão de Demanda",
+              data: dadosPrevistos,
+              borderColor: "#e30613",
+              borderDash: [5, 5],
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          scales: {
+            y: { beginAtZero: false }
+          }
+        }
+      });
+    }
+
+    if (ctxBar) {
+      const topProdutos = data.detalhes.top_produtos;
+      const labels = topProdutos.map(p => p.nome);
+      const valores = topProdutos.map(p => p.total_vendido);
+
+      new Chart(ctxBar, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Volume Vendido (kg)',
+            data: valores,
+            backgroundColor: '#e30613'
+          }]
+        },
+        options: {
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Kg Vendidos' }
+            },
+            x: {
+              title: { display: true, text: 'SKU / Produto' }
+            }
+          }
+        }
+      });
+    }
+  } catch (error) {
+    console.error("Erro ao carregar dados do dashboard:", error);
+  }
+}
+
+// Chamada inicial das funções principais
 atualizarKPIs("237478");
+carregarDashboard();
 
 document.getElementById('dataAtual').textContent = new Date().toLocaleDateString('pt-BR');
 
@@ -68,81 +149,6 @@ btn.addEventListener("click", async (e) => {
     result.innerHTML = `<p class='text-red-600'>Erro: ${err.message}</p>`;
   }
 });
-
-// Gráfico de linha
-if (ctxLine) {
-  const vendasReais = Array.from({ length: 60 }, () => Math.floor(Math.random() * 60) + 90);
-  const datas = Array.from({ length: 60 }, (_, i) => `2025-06-${String(i + 1).padStart(2, '0')}`);
-  const previsao = vendasReais.map((v, i) => i > 3 ? Math.round((v + vendasReais[i - 1] + vendasReais[i - 2]) / 3) : v);
-
-  new Chart(ctxLine, {
-    type: 'line',
-    data: {
-      labels: datas,
-      datasets: [
-        {
-          label: 'Vendas Reais',
-          data: vendasReais,
-          borderColor: '#1f2937',
-          tension: 0.4,
-        },
-        {
-          label: 'Previsão (Média Móvel)',
-          data: previsao,
-          borderColor: '#e30613',
-          borderDash: [5, 5],
-          tension: 0.3,
-        },
-      ]
-    },
-    options: {
-      plugins: {
-        title: { display: false }
-      },
-      scales: {
-        y: { beginAtZero: false }
-      }
-    }
-  });
-}
-
-// Gráfico de barras por SKU
-if (ctxBar) {
-  const skuLabels = ['SKU 101', 'SKU 102', 'SKU 103', 'SKU 104', 'SKU 105', 'SKU 106', 'SKU 107', 'SKU 108', 'SKU 109', 'SKU 110'];
-  const skuData = skuLabels.map(() => Math.floor(Math.random() * 250) + 100);
-
-  new Chart(ctxBar, {
-    type: 'bar',
-    data: {
-      labels: skuLabels,
-      datasets: [{
-        label: 'Volume Vendido (kg)',
-        data: skuData,
-        backgroundColor: '#e30613'
-      }]
-    },
-    options: {
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Kg Vendidos'
-          }
-        },
-        x: {
-          title: {
-            display: true,
-            text: 'SKU'
-          }
-        }
-      }
-    }
-  });
-}
 
 // Calendário com filtro
 function gerarCalendario(mes = new Date().getMonth(), ano = new Date().getFullYear()) {
@@ -184,6 +190,8 @@ function gerarCalendario(mes = new Date().getMonth(), ano = new Date().getFullYe
     calendarGrid.appendChild(div);
   }
 }
+
+// Inicializar calendário e filtro
 gerarCalendario();
 
 document.getElementById('filtroCritico')?.addEventListener('change', (e) => {

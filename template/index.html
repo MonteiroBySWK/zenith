@@ -12,23 +12,23 @@
   <body class="bg-gray-50 font-sans">
     <div class="flex min-h-screen">
       <!-- Sidebar -->
-      <aside class="w-64 bg-gradient-to-b from-red-600 to-red-700 text-white shadow-xl p-4 flex flex-col">
-        <div class="text-center mb-6">
-          <img src="image.png" alt="Grupo Mateus" class="mx-auto h-12">
-        </div>
-        <nav class="space-y-4 text-sm">
-          <a href="#upload" class="flex items-center gap-2 hover:text-yellow-200"><i class="fa-solid fa-upload"></i>Upload</a>
-          <a href="#grafico" class="flex items-center gap-2 hover:text-yellow-200"><i class="fa-solid fa-chart-line"></i>Vendas</a>
-          <a href="#calendario" class="flex items-center gap-2 hover:text-yellow-200"><i class="fa-solid fa-calendar-days"></i>Calendário</a>
-          <a href="#skus" class="flex items-center gap-2 hover:text-yellow-200"><i class="fa-solid fa-box"></i>SKUs</a>
-        </nav>
-      </aside>
+      
 
       <!-- Conteúdo Principal -->
-      <main class="flex-1 p-6">
-        <header class="mb-6 flex justify-between items-center">
-          <h1 class="text-3xl font-bold text-gray-800">Dashboard de Descongelamento</h1>
-        </header>
+      <main class="flex-1 ">
+         <header class="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 shadow-md mb-10 fixed top-0 w-full z-10">
+      <div class="max-w-7xl mx-auto flex justify-between items-center">
+        <div class="flex items-center gap-4">
+          <img src="image.png" alt="Grupo Mateus" class="h-10">
+        </div>
+        <nav class="space-x-4 text-sm">
+          <a href="#upload" class="hover:text-yellow-200"><i class="fa-solid fa-upload mr-1"></i>Upload</a>
+          <a href="#grafico" class="hover:text-yellow-200"><i class="fa-solid fa-chart-line mr-1"></i>Vendas</a>
+          <a href="#calendario" class="hover:text-yellow-200"><i class="fa-solid fa-calendar-days mr-1"></i>Calendário</a>
+          <a href="#skus" class="hover:text-yellow-200"><i class="fa-solid fa-box mr-1"></i>SKUs</a>
+        </nav>
+      </div>
+    </header>
 
         <!-- Filtros -->
         <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
