@@ -81,7 +81,6 @@ if (ctxLine) {
   });
 }
 
-// Gráfico de barras por SKU
 if (ctxBar) {
   const skuLabels = ['SKU 101', 'SKU 102', 'SKU 103', 'SKU 104', 'SKU 105', 'SKU 106', 'SKU 107', 'SKU 108', 'SKU 109', 'SKU 110'];
   const skuData = skuLabels.map(() => Math.floor(Math.random() * 250) + 100);
