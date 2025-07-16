@@ -685,6 +685,8 @@ def importar_historico_vendas_do_string_csv(conn: sqlite3.Connection, csv_conten
         ).dt.strftime("%Y-%m-%d")
         # Nota: dayfirst=True é importante se o formato de data_dia for DD/MM/AAAA
 
+        print(df_vendas)
+
         cursor = conn.cursor()
         for index, row in df_vendas.iterrows():
             try:
