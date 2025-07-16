@@ -20,19 +20,19 @@ alpha = 0.85  # Fator de retração (15% de perda)
 validade_dias = 2  # Validade após descongelamento
 
 
-def calcular_desvio_padrao(conn, produto_id):
+def calcular_desvio_padrao(conn, produto_sku):
     """Calcula o desvio padrão dos erros de previsão"""
     cursor = conn.cursor()
     cursor.execute(
         """
             SELECT p.quantidade_prevista, v.quantidade
             FROM previsao p
-            JOIN venda v ON p.produto_id = v.produto_id AND p.data = v.data
-            WHERE p.produto_id = ? 
+            JOIN venda v ON p.produto_sku = v.produto_sku AND p.data = v.data
+            WHERE p.produto_sku = ? 
             ORDER BY p.data DESC
             LIMIT 30
         """,
-        (produto_id,),
+        (produto_sku,),
     )
 
     dados = cursor.fetchall()
@@ -43,37 +43,37 @@ def calcular_desvio_padrao(conn, produto_id):
     return np.std(erros)
 
 
-def calcular_retirada(conn, produto_id, data_hoje):
+def calcular_retirada(conn, produto_sku, data_hoje):
     """
     Calcula R(t) - quantidade a ser retirada hoje (kg brutos)
 
-    :param produto_id: ID do produto (SKU)
+    :param produto_sku: SKU do produto
     :param data_hoje: Data atual (dia t)
     :return: Quantidade em kg a ser retirada
     """
     # 1. Obter previsão para t+2
     data_venda = data_hoje + timedelta(days=2)
 
-    Vp_t2 = PrevisaoRepository.obter_previsao(conn, produto_id, data_venda)
+    Vp_t2 = PrevisaoRepository.obter_previsao(conn, produto_sku, data_venda)
 
     if Vp_t2 is None:
         # Fallback para demanda média se não houver previsão
-        Vp_t2 = VendaRepository.obter_demanda_media(conn, produto_id)
+        Vp_t2 = VendaRepository.obter_demanda_media(conn, produto_sku)
         logging.warning(
-            f"Previsão não encontrada para produto {produto_id}. Usando demanda média: {Vp_t2}"
+            f"Previsão não encontrada para produto {produto_sku}. Usando demanda média: {Vp_t2}"
         )
 
     # 2. Calcular desvio padrão para t+2
-    m_t2 = calcular_desvio_padrao(conn, produto_id)  # MUDAR URGENTE
+    m_t2 = calcular_desvio_padrao(conn, produto_sku)  # MUDAR URGENTE
 
     # 3. Obter retirada do dia anterior (t-1)
-    R_t1 = LoteRepository.obter_retirada_anterior(conn, produto_id, data_hoje)
+    R_t1 = LoteRepository.obter_retirada_anterior(conn, produto_sku, data_hoje)
 
     # 4. Aplicar fórmula principal
     R_t = (Vp_t2 + k_seg * m_t2 - alpha * R_t1) / alpha
 
     # 5. Aplicar restrições
-    demanda_media = VendaRepository.obter_demanda_media(conn, produto_id)
+    demanda_media = VendaRepository.obter_demanda_media(conn, produto_sku)
     R_max = (2 * demanda_media) / alpha
 
     R_t = max(0, R_t)  # Não pode ser negativo
@@ -82,7 +82,7 @@ def calcular_retirada(conn, produto_id, data_hoje):
     return R_t
 
 
-def registrar_venda(conn, produto_id, data, quantidade):
+def registrar_venda(conn, produto_sku, data, quantidade):
     """Registra uma venda real e atualiza os lotes"""
     cursor = conn.cursor()
     data_str = data.strftime("%Y-%m-%d")
@@ -90,10 +90,10 @@ def registrar_venda(conn, produto_id, data, quantidade):
     # 1. Registrar a venda
     cursor.execute(
         """
-            INSERT INTO venda (data, quantidade, produto_id)
+            INSERT INTO venda (data, quantidade, produto_sku)
             VALUES (?, ?, ?)
         """,
-        (data_str, quantidade, produto_id),
+        (data_str, quantidade, produto_sku),
     )
 
     # 2. Atualizar lotes (FIFO)
@@ -101,12 +101,12 @@ def registrar_venda(conn, produto_id, data, quantidade):
         """
             SELECT id, quantidade_atual
             FROM lote
-            WHERE produto_id = ? 
+            WHERE produto_sku = ? 
             AND status IN ('disponivel', 'sobra')
             AND data_venda <= ?
             ORDER BY data_retirado
         """,
-        (produto_id, data_str),
+        (produto_sku, data_str),
     )
 
     lotes = cursor.fetchall()
@@ -144,11 +144,11 @@ def registrar_venda(conn, produto_id, data, quantidade):
             )
 
     conn.commit()
-    logging.info(f"Venda registrada: {quantidade}kg para produto {produto_id}")
+    logging.info(f"Venda registrada: {quantidade}kg para produto {produto_sku}")
     return quantidade_restante  # Retorna o que não foi atendido
 
 
-def executar_fluxo_diario(conn, produto_id):
+def executar_fluxo_diario(conn, produto_sku):
     """Executa todo o fluxo diário para um produto"""
     data_hoje = datetime.now().date()
 
@@ -157,15 +157,16 @@ def executar_fluxo_diario(conn, produto_id):
         LoteRepository.atualizar_status_lotes_diario(conn, data_hoje)
 
         # 2. Calcular retirada para hoje
-        R_t = calcular_retirada(conn, produto_id, data_hoje)
-        logging.info(f"Produto {produto_id}: Quantidade a retirar hoje: {R_t:.2f}kg")
+        R_t = calcular_retirada(conn, produto_sku, data_hoje)
+        logging.info(f"Produto {produto_sku}: Quantidade a retirar hoje: {R_t:.2f}kg")
 
         # 3. Criar novo lote com a retirada calculada
-        LoteRepository.criar_lote(conn, produto_id, R_t, data_hoje)
+        LoteRepository.criar_lote(conn, produto_sku, R_t, data_hoje)
 
         # 4. (Opcional) Simular vendas do dia
         # Em produção, isso seria feito no final do dia com dados reais
-        registrar_venda(conn, produto_id, data_hoje, 50.0)
+        # fazer um jeito de trazer as vendas do dia
+        registrar_venda(conn, produto_sku, data_hoje, 50.0)
 
         return True
     except Exception as e:
@@ -180,28 +181,3 @@ def fechar(conn, self):
 def realizar_previsao(conn, self):
     previsao.importar_vendas_csv(conn, Path("src/data/dados_zenith.csv"))
     previsao.prever(conn)
-
-
-# Exemplo de uso (Não usar mais)
-if __name__ == "__main__":
-    ...
-    # try:
-    #     # Supondo que temos um produto com ID 1
-    #     produto_id = "237478"
-
-    #     # Executar fluxo diário
-    #     sucesso = executar_fluxo_diario(produto_id)
-
-    #     if sucesso:
-    #         # Obter relatório de lotes atualizados
-    #         cursor = conn.cursor()
-    #         cursor.execute("SELECT * FROM lote WHERE produto_id = ?", (produto_id,))
-    #         lotes = cursor.fetchall()
-
-    #         print("\nLotes atuais:")
-    #         for lote in lotes:
-    #             print(
-    #                 f"ID: {lote['id']}, Status: {lote['status']}, Quantidade: {lote['quantidade_atual']}kg"
-    #             )
-    # finally:
-    #     fechar()

@@ -9,18 +9,12 @@ def buscar_lotes_por_produto_em_fila(
     conn: sqlite3.Connection, sku: str, data_atual: str
 ) -> Queue:
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM produto WHERE sku = ?", (sku,))
-    produto = cursor.fetchone()
-    if not produto:
-        return Queue()
-
-    produto_id = produto[0]
     cursor.execute(
         """
         SELECT id, quantidade_retirada, quantidade_atual, idade, status, 
                data_retirado, data_venda, data_expiracao
         FROM lote
-        WHERE produto_id = ?
+        WHERE produto_sku = ?
         AND status IN ('sobra', 'disponivel')
         AND DATE(data_retirado, '+' || idade || ' days') <= DATE(?)
         ORDER BY 
@@ -28,7 +22,7 @@ def buscar_lotes_por_produto_em_fila(
             quantidade_atual ASC,
             idade ASC
     """,
-        (produto_id, data_atual),
+        (sku, data_atual),
     )
 
     fila = Queue()
@@ -48,7 +42,7 @@ def buscar_lotes_por_produto_em_fila(
     return fila
 
 
-def criar_lote(conn: sqlite3.Connection, produto_id, quantidade_bruta, data_retirada):
+def criar_lote(conn: sqlite3.Connection, produto_sku, quantidade_bruta, data_retirada):
     """Cria um novo lote no sistema"""
     # Quantidade líquida após retração
     quantidade_liquida = quantidade_bruta * 0.85  # ALPHA
@@ -68,7 +62,7 @@ def criar_lote(conn: sqlite3.Connection, produto_id, quantidade_bruta, data_reti
                 data_retirado,
                 data_venda,
                 data_expiracao,
-                produto_id
+                produto_sku
             ) VALUES (?, ?, 0, 'descongelando', ?, ?, ?, ?)
         """,
         (
@@ -77,7 +71,7 @@ def criar_lote(conn: sqlite3.Connection, produto_id, quantidade_bruta, data_reti
             data_retirada.strftime("%Y-%m-%d"),
             data_venda.strftime("%Y-%m-%d"),
             data_expiracao.strftime("%Y-%m-%d"),
-            produto_id,
+            produto_sku,
         ),
     )
     conn.commit()
