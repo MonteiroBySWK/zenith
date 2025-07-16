@@ -53,7 +53,7 @@ def close_connection(exception):
 
 @app.route("/")
 def index():
-    return render_template("pages/index.html")
+    return render_template("index.html")
 
 
 @app.route("/api/dashboard", methods=["GET"])
@@ -384,7 +384,7 @@ def registrar_venda_rota(produto_sku: str):
         "description": "Faz o upload de um arquivo com dados históricos de vendas para ingestão.",
         "parameters": [
             {
-                "name": "file",
+                "name": "file",  # This name must match the key used to access the file in request.files
                 "in": "formData",
                 "type": "file",
                 "required": True,
@@ -399,25 +399,45 @@ def registrar_venda_rota(produto_sku: str):
 )
 def upload_historico_vendas():
     if "file" not in request.files:
-        return jsonify({"error": "Nenhum arquivo enviado"}), 400
+        return jsonify({"error": "Nenhum arquivo enviado no formulário."}), 400
+
     file = request.files["file"]
+
     if file.filename == "":
-        return jsonify({"error": "Nenhum arquivo selecionado"}), 400
-    if file and (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
-        df = (
-            pd.read_csv(file) if file.filename.endswith(".csv") else pd.read_excel(file)
-        )
-        db_conn = get_db()
-        Manager.importar_historico_vendas(db_conn, df)  # Nova função no Manager
-        return (
-            jsonify({"message": "Dados históricos de vendas importados com sucesso."}),
-            200,
-        )
+        return jsonify({"error": "Nome do arquivo vazio."}), 400
+
+    if file:
+        file_content = file.read().decode("utf-8")  # Read file content and decode
+
+        conn = None
+        try:
+            conn = get_db()
+            # Assuming Manager.importar_historico_vendas_do_string_csv expects a string
+            Manager.importar_historico_vendas_do_string_csv(conn, file_content)
+            return (
+                jsonify(
+                    {"message": "Dados históricos de vendas importados com sucesso."}
+                ),
+                200,
+            )
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            print(f"Failed to import historical sales data: {e}")
+            return (
+                jsonify(
+                    {
+                        "error": "Falha ao importar dados históricos de vendas",
+                        "details": str(e),
+                    }
+                ),
+                500,
+            )
+        finally:
+            if conn:
+                conn.close()
     else:
-        return (
-            jsonify({"error": "Formato de arquivo não suportado. Use .csv ou .xlsx"}),
-            400,
-        )
+        return jsonify({"error": "Erro no upload do arquivo."}), 500
 
 
 @app.route("/api/relatorio-diario", methods=["GET"])
@@ -454,7 +474,15 @@ def upload_historico_vendas():
 )
 def obter_relatorio_diario_rota():
     db_conn = get_db()
-    relatorio = Manager.obter_dados_relatorio_diario(db_conn)
+    data_str = request.args.get("data")
+    data_relatorio = datetime.now().date()
+    if data_str:
+        try:
+            data_relatorio = datetime.strptime(data_str, "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"error": "Formato de data inválido. Use YYYY-MM-DD"}), 400
+
+    relatorio = Manager.obter_dados_relatorio_diario(db_conn, data_relatorio)
     return jsonify(relatorio), 200
 
 

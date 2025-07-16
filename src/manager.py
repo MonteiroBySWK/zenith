@@ -4,8 +4,12 @@ import numpy as np
 import logging
 from pathlib import Path
 import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error # Adicionar esta linha
+from sklearn.metrics import (
+    mean_squared_error,
+    mean_absolute_percentage_error,
+)  # Adicionar esta linha
 
+import io
 import src.repositories.PrevisaoRepository as PrevisaoRepository
 import src.repositories.VendaRepository as VendaRepository
 import src.repositories.LoteRepository as LoteRepository
@@ -501,117 +505,82 @@ def obter_metricas_dashboard(conn):
     }
 
 
-def obter_dados_relatorio_diario(conn: sqlite3.Connection) -> list:
+def obter_dados_relatorio_diario(
+    conn: sqlite3.Connection, data_relatorio: datetime.date
+):
     """
-    Gera os dados para o relatório diário, indicando:
-    - Produtos a serem retirados hoje
-    - Produtos em processo de descongelamento
-    - Produtos já descongelados e prontos para venda
-    - Lotes com idade informada (data de retirada)
+    Gera um relatório diário contendo:
+    - Produtos a serem retirados hoje (previsão de demanda para t+2)
+    - Lotes em descongelamento (status 'descongelando')
+    - Lotes disponíveis para venda (status 'disponivel' ou 'sobra')
     """
-    hoje = datetime.now().date()
-    db_conn = conn
-    dados_relatorio = []
+    data_relatorio_str = data_relatorio.strftime("%Y-%m-%d")
 
-    # 1. Produtos a serem retirados hoje (baseado na previsão e cálculo de retirada)
-    produtos = ProdutoRepository.buscar_produtos(db_conn)
-    for produto in produtos:
+    # 1. Produtos a serem retirados hoje
+    produtos_para_retirar_hoje = []
+    todos_produtos = ProdutoRepository.buscar_produtos(conn)
+    for produto in todos_produtos:
         sku = produto["sku"]
         nome_produto = produto["nome"]
-        quantidade_retirar = calcular_retirada(db_conn, sku, hoje)
-        if quantidade_retirar > 0:
-            dados_relatorio.append(
+
+        quantidade_a_retirar = calcular_retirada(conn, sku, data_relatorio)
+        if quantidade_a_retirar > 0:
+            produtos_para_retirar_hoje.append(
                 {
-                    "categoria": "A serem retirados hoje",
                     "sku": sku,
                     "nome_produto": nome_produto,
-                    "quantidade_kg": round(quantidade_retirar, 2),
-                    "status_lote": "n/a",
-                    "idade_lote_dias": "n/a",
+                    "quantidade_a_retirar": round(quantidade_a_retirar, 2),
                 }
             )
 
-    # 2. Produtos em processo de descongelamento
-    lotes_descongelando = LoteRepository.obter_lotes_por_status(
-        db_conn, "descongelando"
+    # 2. Lotes em descongelamento
+    lotes_em_descongelamento = []
+    lotes_descongelando_db = LoteRepository.obter_lotes_por_status(
+        conn, "descongelando"
     )
-    for lote in lotes_descongelando:
-        dados_relatorio.append(
+    for lote in lotes_descongelando_db:
+        nome_produto = ProdutoRepository.buscar_nome_produto(conn, lote["produto_sku"])
+        lotes_em_descongelamento.append(
             {
-                "categoria": "Em processo de descongelamento",
+                "id": lote["id"],
                 "sku": lote["produto_sku"],
-                "nome_produto": ProdutoRepository.buscar_nome_produto(
-                    db_conn, lote["produto_sku"]
-                ),  # Assumindo uma função para buscar nome
-                "quantidade_kg": round(lote["quantidade_atual"], 2),
-                "status_lote": lote["status"],
-                "idade_lote_dias": (
-                    (hoje - lote["data_retirado"]).days
+                "nome_produto": nome_produto,
+                "quantidade_atual": lote["quantidade_atual"],
+                "data_retirado": (
+                    lote["data_retirado"].strftime("%Y-%m-%d")
                     if lote["data_retirado"]
-                    else "n/a"
+                    else None
                 ),
             }
         )
 
-    # 3. Produtos já descongelados e prontos para venda (status 'disponivel')
-    lotes_disponiveis = LoteRepository.obter_lotes_por_status(db_conn, "disponivel")
-    for lote in lotes_disponiveis:
-        # Filtrar apenas os que foram descongelados e estão prontos para venda
-        # A lógica de "pronto para venda" é que já passou pelo lead time e está disponível.
-        # Poderíamos ter um status mais específico como 'pronto_venda' ou inferir pela data_venda no lote.
-        # Para este exemplo, consideraremos 'disponivel' como pronto para venda.
-        dados_relatorio.append(
+    # 3. Lotes disponíveis para venda
+    lotes_disponiveis_venda = []
+    lotes_disponiveis_db = LoteRepository.obter_lotes_por_status(conn, "disponivel")
+    lotes_sobra_db = LoteRepository.obter_lotes_por_status(conn, "sobra")
+
+    for lote in lotes_disponiveis_db + lotes_sobra_db:
+        nome_produto = ProdutoRepository.buscar_nome_produto(conn, lote["produto_sku"])
+        lotes_disponiveis_venda.append(
             {
-                "categoria": "Prontos para venda",
+                "id": lote["id"],
                 "sku": lote["produto_sku"],
-                "nome_produto": ProdutoRepository.buscar_nome_produto(
-                    db_conn, lote["produto_sku"]
-                ),
-                "quantidade_kg": round(lote["quantidade_atual"], 2),
-                "status_lote": lote["status"],
-                "idade_lote_dias": (
-                    (hoje - lote["data_retirado"]).days
-                    if lote["data_retirado"]
-                    else "n/a"
+                "nome_produto": nome_produto,
+                "quantidade_atual": lote["quantidade_atual"],
+                "data_venda": (
+                    lote["data_venda"].strftime("%Y-%m-%d")
+                    if lote["data_venda"]
+                    else None
                 ),
             }
         )
 
-    # 4. Lotes com idade de lote informada (todos os lotes ativos com data de retirada)
-    # Já estão incluídos nas categorias acima, mas podemos ter uma seção separada ou mais detalhada se necessário.
-    # Por simplicidade, vamos garantir que todos os lotes ativos com data de retirada apareçam.
-    lotes_ativos = LoteRepository.obter_todos_lotes_ativos(
-        db_conn
-    )  # Assumindo função para buscar todos os lotes ativos
-    for lote in lotes_ativos:
-        idade_lote = (
-            (hoje - lote["data_retirado"]).days if lote["data_retirado"] else "n/a"
-        )
-        # Evita duplicidade se já listado em outras categorias mais específicas
-        if {
-            "categoria": "Todos os lotes ativos",  # Nova categoria para lotes gerais
-            "sku": lote["produto_sku"],
-            "nome_produto": ProdutoRepository.buscar_nome_produto(
-                db_conn, lote["produto_sku"]
-            ),
-            "quantidade_kg": round(lote["quantidade_atual"], 2),
-            "status_lote": lote["status"],
-            "idade_lote_dias": idade_lote,
-        } not in dados_relatorio:
-            dados_relatorio.append(
-                {
-                    "categoria": "Todos os lotes ativos",
-                    "sku": lote["produto_sku"],
-                    "nome_produto": ProdutoRepository.buscar_nome_produto(
-                        db_conn, lote["produto_sku"]
-                    ),
-                    "quantidade_kg": round(lote["quantidade_atual"], 2),
-                    "status_lote": lote["status"],
-                    "idade_lote_dias": idade_lote,
-                }
-            )
-
-    return dados_relatorio
+    return {
+        "data_relatorio": data_relatorio_str,
+        "produtos_para_retirar_hoje": produtos_para_retirar_hoje,
+        "lotes_em_descongelamento": lotes_em_descongelamento,
+        "lotes_disponiveis_venda": lotes_disponiveis_venda,
+    }
 
 
 def obter_metricas_previsao(conn: sqlite3.Connection, dias_comparacao: int = 30):
@@ -677,3 +646,65 @@ def obter_metricas_previsao(conn: sqlite3.Connection, dias_comparacao: int = 30)
         "ultima_atualizacao": ultima_atualizacao,
         "periodo_comparacao_dias": dias_comparacao,
     }
+
+
+def importar_historico_vendas_do_string_csv(conn: sqlite3.Connection, csv_content: str):
+    """
+    Importa o histórico de vendas de uma string CSV para o banco de dados.
+
+    Args:
+        conn: Conexão com o banco de dados.
+        csv_content: O conteúdo do CSV como uma string.
+    """
+    logging.info("Iniciando importação de vendas do conteúdo CSV em string.")
+    try:
+        # Usar StringIO para ler a string como se fosse um arquivo
+        csv_file_like_object = io.StringIO(csv_content)
+        df_vendas = pd.read_csv(csv_file_like_object)
+
+        # Garantir que as colunas essenciais existem
+        required_columns = ["data", "produto_sku", "quantidade"]
+        if not all(col in df_vendas.columns for col in required_columns):
+            raise ValueError(
+                f"CSV missing required columns. Expected: {required_columns}"
+            )
+
+        # Converter a coluna 'data' para datetime e formatar para o banco de dados
+        df_vendas["data"] = pd.to_datetime(df_vendas["data"]).dt.strftime("%Y-%m-%d")
+
+        cursor = conn.cursor()
+        for index, row in df_vendas.iterrows():
+            try:
+                # Primeiro, verifique se o produto_sku existe na tabela de produtos
+                cursor.execute(
+                    "SELECT sku FROM produto WHERE sku = ?", (row["produto_sku"],)
+                )
+                if cursor.fetchone() is None:
+                    logging.warning(
+                        f"Produto SKU '{row['produto_sku']}' não encontrado. Ignorando venda."
+                    )
+                    continue
+
+                # Inserir ou atualizar a venda
+                # Considerar se deve ser INSERT OR REPLACE ou INSERT, dependendo da lógica
+                cursor.execute(
+                    """
+                    INSERT INTO venda (data, quantidade, produto_sku)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(data, produto_sku) DO UPDATE SET quantidade = excluded.quantidade
+                    """,
+                    (row["data"], row["quantidade"], row["produto_sku"]),
+                )
+            except sqlite3.Error as e:
+                logging.error(
+                    f"Erro ao inserir venda para SKU {row['produto_sku']} na data {row['data']}: {e}"
+                )
+                # Dependendo da sua necessidade, você pode querer levantar a exceção ou continuar
+
+        conn.commit()
+        logging.info("Importação de vendas do CSV em string concluída com sucesso.")
+
+    except Exception as e:
+        conn.rollback()
+        logging.error(f"Erro durante a importação de vendas do CSV em string: {e}")
+        raise  # Re-raise para que o chamador possa lidar com o erro
