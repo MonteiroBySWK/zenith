@@ -1,18 +1,25 @@
-import sqlite3
-import logging
+import pymysql
 from typing import List, Dict
 
-def buscar_produtos(conn: sqlite3.Connection) -> List[Dict]:
+conn = pymysql.connect(
+    host='localhost',
+    user='root',
+    password='root',
+    database='estoque',
+    cursorclass=pymysql.cursors.DictCursor
+)
+
+def buscar_produtos(conn: pymysql.Connection) -> List[Dict]:
     cursor = conn.cursor()
     cursor.execute("SELECT id, sku, nome, categoria FROM produto")
     linhas = cursor.fetchall()
 
     produtos = []
-    for id_, sku, nome, categoria in linhas:
+    for linha in linhas:
         produtos.append({
-            "id": id_,
-            "sku": sku,
-            "nome": nome,
-            "categoria": categoria
+            "id": linha["id"],
+            "sku": linha["sku"],
+            "nome": linha["nome"],
+            "categoria": linha["categoria"]
         })
     return produtos

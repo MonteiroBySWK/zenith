@@ -1,43 +1,51 @@
-import sqlite3
-import logging
+import pymysql
 from datetime import date
+from typing import Optional
+
+pymysql.connect(
+    host='localhost',
+    user='root',
+    password='root',
+    database='estoque',
+    cursorclass=pymysql.cursors.DictCursor
+)
 
 
 def salvar_venda_no_banco(
-    conn: sqlite3.Connection, sku: str, data_venda: str, quantidade: float
+    conn: pymysql.Connection, sku: str, data_venda: str, quantidade: float
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM produto WHERE sku = ?", (sku,))
+    cursor.execute("SELECT id FROM produto WHERE sku = %s", (sku,))
     resultado = cursor.fetchone()
 
     if not resultado:
         return
 
-    produto_id = resultado[0]
+    produto_id = resultado["id"]
     cursor.execute(
-        "INSERT INTO venda (data, quantidade, produto_id) VALUES (?, ?, ?)",
+        "INSERT INTO venda (data, quantidade, produto_id) VALUES (%s, %s, %s)",
         (data_venda, quantidade, produto_id),
     )
     conn.commit()
 
 
 def buscar_total_vendido_no_dia(
-    conn: sqlite3.Connection, data_venda: str = None
+    conn: pymysql.Connection, data_venda: Optional[str] = None
 ) -> float:
     cursor = conn.cursor()
     if data_venda is None:
         data_venda = date.today().isoformat()
 
-    cursor.execute("SELECT SUM(quantidade) FROM venda WHERE data = ?", (data_venda,))
+    cursor.execute("SELECT SUM(quantidade) AS total FROM venda WHERE data = %s", (data_venda,))
     resultado = cursor.fetchone()
-    return resultado[0] if resultado[0] else 0.0
+    return resultado["total"] if resultado and resultado["total"] else 0.0
 
 
-def obter_demanda_media(conn: sqlite3.Connection, produto_id):
+def obter_demanda_media(conn: pymysql.Connection, produto_id: int) -> float:
     """Calcula a demanda média do produto"""
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT AVG(quantidade) FROM venda WHERE produto_id = ?", (produto_id,)
+        "SELECT AVG(quantidade) AS media FROM venda WHERE produto_id = %s", (produto_id,)
     )
     row = cursor.fetchone()
-    return row[0] if row[0] else 0.0
+    return row["media"] if row and row["media"] else 0.0

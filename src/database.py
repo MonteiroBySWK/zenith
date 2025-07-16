@@ -1,7 +1,6 @@
-import sqlite3
+import pymysql
 import logging
 from pathlib import Path
-import previsao
 
 # --- Configuração de Logging ---
 logging.basicConfig(
@@ -9,72 +8,76 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# Caminho padrão do banco
-DB_PATH = Path("./data/data.db")
+# Dados de conexão (ajuste conforme necessário)
+MYSQL_CONFIG = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': 'root',
+    'database': 'estoque',
+    'charset': 'utf8mb4',
+    'cursorclass': pymysql.cursors.DictCursor
+}
 
-def criar_banco_e_tabelas(path_db: Path):
+def criar_banco_e_tabelas():
     """
-    Cria o arquivo de banco SQLite e
-    inicializa todas as tabelas necessárias.
+    Cria o banco de dados MySQL e inicializa todas as tabelas necessárias.
     """
-    
-    # path_db.parent.mkdir(parents=True, exist_ok=True)  # <--- ADICIONE ESTA LINHA
-    logging.info(f"Criando banco e tabelas em '{path_db}'...")
-    conn = sqlite3.connect(path_db)
-    c = conn.cursor()
 
-    # Criação das tabelas
-    # status: 'descongelando', 'disponivel', 'sobra', 'perda', 'vendido'
-    # data_venda == data_disponivel
-    c.execute(""" 
+    logging.info("Conectando ao banco MySQL...")
+
+    conn = pymysql.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+
+    logging.info("Criando tabelas no banco MySQL...")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS produto (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sku VARCHAR(100) NOT NULL UNIQUE,
+            nome VARCHAR(255) NOT NULL,
+            categoria VARCHAR(100) NOT NULL
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS lote (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INT AUTO_INCREMENT PRIMARY KEY,
             quantidade_retirada FLOAT NOT NULL,
             quantidade_atual FLOAT NOT NULL,
-            idade INTEGER NOT NULL,
-            status TEXT NOT NULL,
+            idade INT NOT NULL,
+            status VARCHAR(50) NOT NULL,
             data_retirado DATE NOT NULL,
             data_venda DATE NOT NULL,
             data_expiracao DATE NOT NULL,
-            produto_id INTEGER NOT NULL,
+            produto_id INT NOT NULL,
             FOREIGN KEY (produto_id) REFERENCES produto(id)
         )
     """)
 
-    c.execute(""" 
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS venda (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INT AUTO_INCREMENT PRIMARY KEY,
             data DATE NOT NULL,
             quantidade FLOAT NOT NULL,
-            produto_id INTEGER NOT NULL,
+            produto_id INT NOT NULL,
             FOREIGN KEY (produto_id) REFERENCES produto(id)
         )
     """)
 
-    c.execute("""
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS previsao (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INT AUTO_INCREMENT PRIMARY KEY,
             data DATE NOT NULL,
             quantidade_prevista FLOAT NOT NULL,
-            produto_id INTEGER NOT NULL,
-            FOREIGN KEY (produto_id) REFERENCES produto(id),
-            UNIQUE (produto_id, data)  -- evita duplicidade de previsão por produto e data
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS produto (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sku TEXT NOT NULL UNIQUE,
-            nome TEXT NOT NULL,
-            categoria TEXT NOT NULL
+            produto_id INT NOT NULL,
+            UNIQUE (produto_id, data),
+            FOREIGN KEY (produto_id) REFERENCES produto(id)
         )
     """)
 
     conn.commit()
     conn.close()
-    logging.info("Banco e tabelas criados com sucesso.")
+    logging.info("Banco e tabelas criados com sucesso no MySQL.")
 
 if __name__ == "__main__":
-    criar_banco_e_tabelas(DB_PATH)
-
+    criar_banco_e_tabelas()

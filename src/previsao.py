@@ -1,7 +1,8 @@
 from pathlib import Path
 import numpy as np
+from sqlalchemy import create_engine
 import pandas as pd
-import sqlite3
+import pymysql
 import logging
 from typing import Union, Dict, Any
 from prophet import Prophet
@@ -10,90 +11,83 @@ from sklearn.metrics import mean_squared_error
 
 from src.repositories import ProdutoRepository, PrevisaoRepository
 
+engine = create_engine("mysql+pymysql://usuario:root@localhost:3306/estoque")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 CONFIG: Dict[str, Any] = {
-    "dias_prev": 7 
+    "dias_prev": 7
 }
 
-def importar_vendas_csv(conn: sqlite3.Connection, caminho_csv: Union[str, Path]):
-    """
-    Importa vendas a partir de um arquivo CSV com colunas:
-    data_dia, id_produto, descricao_produto, total_venda_dia_kg, Equipe responsável.
-    Cria o produto se não existir e insere as vendas.
-    """
+
+def importar_vendas_csv(conn: pymysql.connections.Connection, caminho_csv: Union[str, Path]):
     df = pd.read_csv(caminho_csv, parse_dates=["data_dia"], dayfirst=True)
 
-    cursor = conn.cursor()
-    total_linhas = 0
-    produtos_criados = 0
-    vendas_inseridas = 0
+    with conn.cursor() as cursor:
+        total_linhas = 0
+        produtos_criados = 0
+        vendas_inseridas = 0
 
-    for _, row in df.iterrows():
-        sku = str(row["id_produto"])
-        nome = row["descricao_produto"]
-        categoria = row["Equipe responsável"]
-        data = row["data_dia"].strftime("%Y-%m-%d")
-        quantidade = float(row["total_venda_dia_kg"])
+        for _, row in df.iterrows():
+            sku = str(row["id_produto"])
+            nome = row["descricao_produto"]
+            categoria = row["Equipe responsável"]
+            data = row["data_dia"].strftime("%Y-%m-%d")
+            quantidade = float(row["total_venda_dia_kg"])
 
-        cursor.execute("SELECT id FROM produto WHERE sku = ?", (sku,))
-        resultado = cursor.fetchone()
+            cursor.execute("SELECT id FROM produto WHERE sku = %s", (sku,))
+            resultado = cursor.fetchone()
 
-        if resultado:
-            produto_id = resultado[0]
-        else:
+            if resultado:
+                produto_id = resultado["id"]
+            else:
+                cursor.execute(
+                    "INSERT INTO produto (sku, nome, categoria) VALUES (%s, %s, %s)",
+                    (sku, nome, categoria)
+                )
+                produto_id = cursor.lastrowid
+                produtos_criados += 1
+                logging.info(f"Produto criado: SKU={sku}, Nome={nome}")
+
             cursor.execute(
-                "INSERT INTO produto (sku, nome, categoria) VALUES (?, ?, ?)",
-                (sku, nome, categoria)
+                "SELECT id FROM venda WHERE produto_id = %s AND data = %s",
+                (produto_id, data)
             )
-            produto_id = cursor.lastrowid
-            produtos_criados += 1
-            logging.info(f"Produto criado: SKU={sku}, Nome={nome}")
+            if cursor.fetchone():
+                logging.warning(f"Venda já registrada para SKU={sku} em {data}. Ignorando.")
+                continue
 
-        cursor.execute(
-            "SELECT id FROM venda WHERE produto_id = ? AND data = ?",
-            (produto_id, data)
-        )
-        if cursor.fetchone():
-            logging.warning(f"Venda já registrada para SKU={sku} em {data}. Ignorando.")
-            continue
+            cursor.execute(
+                "INSERT INTO venda (data, quantidade, produto_id) VALUES (%s, %s, %s)",
+                (data, quantidade, produto_id)
+            )
+            vendas_inseridas += 1
+            total_linhas += 1
 
-        cursor.execute(
-            "INSERT INTO venda (data, quantidade, produto_id) VALUES (?, ?, ?)",
-            (data, quantidade, produto_id)
-        )
-        vendas_inseridas += 1
-        total_linhas += 1
+        conn.commit()
 
-    conn.commit()
     logging.info(f"Importação finalizada: {produtos_criados} produtos criados, {vendas_inseridas} vendas inseridas, {total_linhas} linhas processadas.")
 
-def carregar_dados_do_banco(conn: sqlite3.Connection, sku: str) -> pd.DataFrame:
-    """
-    Busca dados de vendas do banco para o produto com o SKU fornecido.
-    Retorna um DataFrame com colunas: data_dia, total_venda_dia_kg
-    """
+
+def carregar_dados_do_banco(sku: str) -> pd.DataFrame:
     query = """
         SELECT v.data, SUM(v.quantidade) as total_venda_dia_kg
         FROM venda v
         JOIN produto p ON v.produto_id = p.id
-        WHERE p.sku = ?
+        WHERE p.sku = %s
         GROUP BY v.data
         ORDER BY v.data ASC
     """
-    df = pd.read_sql_query(query, conn, params=(sku,))
+    df = pd.read_sql(query, engine, params=(sku,))
     df['data_dia'] = pd.to_datetime(df['data'])
     df = df.drop(columns=['data'])
     return df
 
+
 def treinar_e_prever(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Treina Prophet usando todo o histórico do DataFrame,
-    prevê os próximos N dias, e valida contra os últimos N dias reais se existirem.
-    """
     df = df.sort_values('data_dia').reset_index(drop=True)
 
     if len(df) > CONFIG["dias_prev"]:
@@ -140,7 +134,8 @@ def treinar_e_prever(df: pd.DataFrame) -> pd.DataFrame:
 
     return previsoes[['ds', 'yhat']]
 
-def salvar_previsoes(conn: sqlite3.Connection, sku: str, nome_produto: str, previsoes: pd.DataFrame):
+
+def salvar_previsoes(conn: pymysql.connections.Connection, sku: str, nome_produto: str, previsoes: pd.DataFrame):
     for _, row in previsoes.iterrows():
         PrevisaoRepository.salvar_previsao_no_banco(
             conn=conn,
@@ -151,7 +146,8 @@ def salvar_previsoes(conn: sqlite3.Connection, sku: str, nome_produto: str, prev
             quantidade_prevista=row['yhat']
         )
 
-def prever(conn: sqlite3.Connection):
+
+def prever(conn: pymysql.connections.Connection):
     produtos = ProdutoRepository.buscar_produtos(conn)
 
     for produto in produtos:
