@@ -100,7 +100,7 @@ def comparar_previsoes(dados_reais, previsoes, dias_comparacao=7):
 def main():
     # Caminhos dos arquivos
     csv_path = "zenith.csv"
-    db_path = "../src/data/data.db"
+    db_path = "src/data/data.db"
     
     print("🚀 INICIANDO COMPARAÇÃO DE PREVISÕES")
     print("=" * 40)
