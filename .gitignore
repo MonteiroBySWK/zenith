@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#uv
+pyproject.toml
+uv.lock
+
 # C extensions
 *.so
 *.os
