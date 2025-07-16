@@ -5,6 +5,31 @@ const ctxLine = document.getElementById('lineChart')?.getContext('2d');
 const ctxBar = document.getElementById('barChart')?.getContext('2d');
 const calendarGrid = document.getElementById("calendarGrid");
 
+// Adiciona integração com KPI baseado na API /api/lotes/{produto_sku}
+async function atualizarKPIs(sku) {
+  try {
+    const res = await fetch(`http://localhost:5000/api/lotes/${sku}`);
+    const data = await res.json();
+    const metricas = data.metricas;
+
+    const totalInicial = metricas.total_inicial;
+    const totalAtual = metricas.total_atual;
+    const totalDisponivel = metricas.total_disponivel;
+
+    const totalRetiradoHoje = (totalInicial - totalAtual).toFixed(1);
+    const emDescongelamento = (totalInicial - totalDisponivel).toFixed(1);
+
+    document.getElementById("kpi-retirado").textContent = `${totalRetiradoHoje} kg`;
+    document.getElementById("kpi-descongelando").textContent = `${emDescongelamento} kg`;
+    document.getElementById("kpi-disponivel").textContent = `${totalDisponivel.toFixed(1)} kg`;
+  } catch (error) {
+    console.error("Erro ao carregar KPIs:", error);
+  }
+}
+
+// Exemplo de uso com SKU padrão (pode ser dinâmico)
+atualizarKPIs("237478");
+
 document.getElementById('dataAtual').textContent = new Date().toLocaleDateString('pt-BR');
 
 // Upload CSV
