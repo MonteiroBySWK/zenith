@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, g
 from flask.json import jsonify
-from flask_cors import CORS
 from flasgger import Swagger, swag_from
 import pandas as pd
 from pathlib import Path
