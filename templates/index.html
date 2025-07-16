@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dashboard | Grupo Mateus</title>
+    <title>Dashboard | ZENITH</title>
     <link
       href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
       rel="stylesheet"
@@ -14,9 +14,8 @@
     />
     <link
       rel="stylesheet"
-      href="{{ url_for('static', filename='style.css') }}"
+      href="../static/style.css"
     />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body class="bg-gray-50 font-sans">
     <div class="flex min-h-screen">
@@ -25,13 +24,13 @@
       <!-- Conteúdo Principal -->
       <main class="flex-1">
         <header
-          class="bg-gradient-to-r from-red-600 to-red-700 text-white p-4 shadow-md mb-10 fixed top-0 w-full z-10"
+          class="bg-gradient-to-r from-red-800 to-red-700 text-white p-4 shadow-md mb-10 fixed top-0 w-full z-10"
         >
           <div class="max-w-7xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-4">
               <img
-                src="{{ url_for('static', filename='image.png') }}"
-                alt="Grupo Mateus"
+                src="../static/logo.png"
+                alt="Zenith Logo"
                 class="h-10"
               />
             </div>
@@ -211,6 +210,7 @@
         </section>
       </main>
     </div>
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="../static/script.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </body>
 </html>

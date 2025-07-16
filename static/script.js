@@ -1,22 +1,19 @@
-// Dashboard atualizado com dados reais da API
-
-const input = document.querySelector('input[type="file"]');
-const btn = document.querySelector("button");
-const result = document.querySelector("#result");
 const ctxLine = document.getElementById('lineChart')?.getContext('2d');
 const ctxBar = document.getElementById('barChart')?.getContext('2d');
 const calendarGrid = document.getElementById("calendarGrid");
 
-// Adiciona integração com KPI baseado na API /api/lotes/{produto_sku}
-async function atualizarKPIs(sku) {
+async function atualizarKPIs_e_Graficos(sku) {
   try {
     const res = await fetch(`http://localhost:5000/api/lotes/${sku}`);
+    if (!res.ok) throw new Error("Falha na API /api/lotes");
+
     const data = await res.json();
     const metricas = data.metricas;
 
-    const totalInicial = metricas.total_inicial;
-    const totalAtual = metricas.total_atual;
-    const totalDisponivel = metricas.total_disponivel;
+    // === KPIs ===
+    const totalInicial = Number(metricas.total_inicial) || 0;
+    const totalAtual = Number(metricas.total_atual) || 0;
+    const totalDisponivel = Number(metricas.total_disponivel) || 0;
 
     const totalRetiradoHoje = (totalInicial - totalAtual).toFixed(1);
     const emDescongelamento = (totalInicial - totalDisponivel).toFixed(1);
@@ -24,21 +21,17 @@ async function atualizarKPIs(sku) {
     document.getElementById("kpi-retirado").textContent = `${totalRetiradoHoje} kg`;
     document.getElementById("kpi-descongelando").textContent = `${emDescongelamento} kg`;
     document.getElementById("kpi-disponivel").textContent = `${totalDisponivel.toFixed(1)} kg`;
-  } catch (error) {
-    console.error("Erro ao carregar KPIs:", error);
-  }
-}
 
-// Novo: gráfico de linha e barras com base na API /api/dashboard
-async function carregarDashboard() {
-  try {
-    const res = await fetch("http://localhost:5000/api/dashboard");
-    const data = await res.json();
+    // Se tiver o ID kpi-status, atualiza
+    if (document.getElementById("kpi-status") && metricas.lotes_por_status?.descongelando !== undefined) {
+      document.getElementById("kpi-status").textContent = `Descongelando: ${metricas.lotes_por_status.descongelando}`;
+    }
 
-    if (ctxLine) {
-      const vendas = data.detalhes.evolucao_vendas;
-      const previsao = data.detalhes.previsoes_demanda;
+    // === Gráfico de Vendas com Previsão ===
+    const vendas = data.evolucao_vendas || [];
+    const previsao = data.previsoes_demanda || [];
 
+    if (ctxLine && vendas.length && previsao.length) {
       const labels = vendas.map(v => v.dia);
       const dadosReais = vendas.map(v => v.total);
       const dadosPrevistos = previsao.map(p => p.quantidade);
@@ -64,17 +57,36 @@ async function carregarDashboard() {
           ]
         },
         options: {
+          responsive: true,
+          plugins: {
+            title: {
+              display: true,
+              text: "Histórico de Vendas com Previsão"
+            }
+          },
           scales: {
-            y: { beginAtZero: false }
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Quantidade (kg)'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Data'
+              }
+            }
           }
         }
       });
     }
 
-    if (ctxBar) {
-      const topProdutos = data.detalhes.top_produtos;
-      const labels = topProdutos.map(p => p.nome);
-      const valores = topProdutos.map(p => p.total_vendido);
+    // === Distribuição de Vendas por SKU ===
+    if (ctxBar && data.top_produtos) {
+      const labels = data.top_produtos.map(p => p.nome);
+      const valores = data.top_produtos.map(p => p.total_vendido);
 
       new Chart(ctxBar, {
         type: "bar",
@@ -102,60 +114,23 @@ async function carregarDashboard() {
         }
       });
     }
+
   } catch (error) {
-    console.error("Erro ao carregar dados do dashboard:", error);
+    console.error("Erro ao carregar dados:", error);
+    document.getElementById("kpi-retirado").textContent = "-";
+    document.getElementById("kpi-descongelando").textContent = "-";
+    document.getElementById("kpi-disponivel").textContent = "-";
+    if (document.getElementById("kpi-status")) {
+      document.getElementById("kpi-status").textContent = "Erro";
+    }
   }
 }
 
-// Chamada inicial das funções principais
-atualizarKPIs("237478");
-carregarDashboard();
-
-document.getElementById('dataAtual').textContent = new Date().toLocaleDateString('pt-BR');
-
-// Upload CSV
-btn.addEventListener("click", async (e) => {
-  e.preventDefault();
-
-  if (!input.files.length) {
-    result.innerHTML = "<p class='text-red-600'>Selecione um arquivo primeiro.</p>";
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", input.files[0]);
-
-  try {
-    const res = await fetch("http://localhost:8080/predict", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!res.ok) throw new Error("Erro na requisição: " + res.status);
-
-    const data = await res.json();
-
-    if (data?.colunas && data?.colunas_nome) {
-      result.innerHTML = `
-        <p><strong>Colunas:</strong> ${data.colunas}</p>
-        <p><strong>Linhas:</strong> ${data.linhas}</p>
-        <p><strong>Nomes das colunas:</strong> ${data.colunas_nome.join(", ")}</p>
-      `;
-    } else {
-      result.innerHTML = "<p class='text-red-600'>Resposta inesperada do servidor.</p>";
-    }
-  } catch (err) {
-    console.error(err);
-    result.innerHTML = `<p class='text-red-600'>Erro: ${err.message}</p>`;
-  }
-});
-
-// Calendário com filtro
+// Função para gerar calendário fictício
 function gerarCalendario(mes = new Date().getMonth(), ano = new Date().getFullYear()) {
   if (!calendarGrid) return;
 
   calendarGrid.innerHTML = "";
-
   const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   diasSemana.forEach(dia => {
     const header = document.createElement("div");
@@ -179,25 +154,26 @@ function gerarCalendario(mes = new Date().getMonth(), ano = new Date().getFullYe
     const valor = Math.floor(Math.random() * 3);
     const peso = Math.floor(Math.random() * 200) + 50;
 
-    const statusClass = valor === 2 ? "high" :
-                        valor === 1 ? "medium" : "low";
-
+    const statusClass = valor === 2 ? "high" : valor === 1 ? "medium" : "low";
     div.className = statusClass;
     div.setAttribute("data-tooltip", `Dia ${dia}: ${peso} kg`);
     div.setAttribute("data-status", statusClass);
     div.textContent = dia.toString().padStart(2, '0');
-
     calendarGrid.appendChild(div);
   }
 }
 
-// Inicializar calendário e filtro
-gerarCalendario();
-
+// Filtro do calendário
 document.getElementById('filtroCritico')?.addEventListener('change', (e) => {
   const valor = e.target.value;
   document.querySelectorAll("#calendarGrid div").forEach(div => {
     if (!div.hasAttribute("data-status")) return;
     div.style.display = (valor === "all" || div.getAttribute("data-status") === valor) ? "block" : "none";
   });
+});
+
+// Inicialização após DOM carregar
+document.addEventListener("DOMContentLoaded", () => {
+  atualizarKPIs_e_Graficos("237478");
+  gerarCalendario();
 });
