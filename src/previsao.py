@@ -8,7 +8,7 @@ from prophet import Prophet
 import holidays
 from sklearn.metrics import mean_squared_error
 
-from repositories import ProdutoRepository, PrevisaoRepository
+from src.repositories import ProdutoRepository, PrevisaoRepository
 
 logging.basicConfig(
     level=logging.INFO,

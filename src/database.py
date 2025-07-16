@@ -78,10 +78,3 @@ def criar_banco_e_tabelas(path_db: Path):
 if __name__ == "__main__":
     criar_banco_e_tabelas(DB_PATH)
 
-    CSV_ZENITH_PATH = Path("./data/dados_zenith.csv")
-
-    with sqlite3.connect(DB_PATH) as conn:
-        previsao.importar_vendas_csv(conn, CSV_ZENITH_PATH)
-        previsao.prever(conn)
-
-

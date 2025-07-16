@@ -8,13 +8,15 @@ import src.repositories.PrevisaoRepository as PrevisaoRepository
 import src.repositories.VendaRepository as VendaRepository
 import src.repositories.LoteRepository as LoteRepository
 
+import src.previsao
+
 # Configuração de logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 
-class SistemaDescongelamento:
+class ManagerSystem:
     def __init__(self, db_path="src/data/data.db"):
         self.db_path = Path(db_path)
         self.conn = sqlite3.connect(self.db_path)
@@ -178,12 +180,13 @@ class SistemaDescongelamento:
     def fechar(self):
         self.conn.close()
 
+    def realizar_previsao(self):
+        previsao.importar_vendas_csv(self.conn, Path("src/data/dados_zenith.csv"))
+        previsao.prever(self.conn)
 
-# Exemplo de uso
+# Exemplo de uso (Não usar mais)
 if __name__ == "__main__":
-    sistema = SistemaDescongelamento()
-
-    
+    sistema = ManagerSystem()
 
     try:
         # Supondo que temos um produto com ID 1

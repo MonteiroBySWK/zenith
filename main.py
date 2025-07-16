@@ -1,11 +1,11 @@
 from flask import Flask, render_template, request
 from flask.json import jsonify
-from src.models.SistemaDescongelamento import SistemaDescongelamento
+from src.Manager import ManagerSystem
 
 import pandas as pd
 
 app = Flask(__name__)
-sistema = SistemaDescongelamento()
+manager = ManagerSystem()
 
 
 @app.route("/")
@@ -67,7 +67,7 @@ def dashboard():
 
 @app.route('/api/retirada/<int:produto_id>', methods=['POST'])
 def executar_fluxo_diario(produto_id):
-    sucesso = sistema.executar_fluxo_diario(produto_id)
+    sucesso = manager.executar_fluxo_diario(produto_id)
     if sucesso:
         return jsonify({"message": "Fluxo diário executado com sucesso."}), 200
     else:
@@ -75,7 +75,7 @@ def executar_fluxo_diario(produto_id):
 
 @app.route('/api/lotes/<int:produto_id>', methods=['GET'])
 def obter_lotes(produto_id):
-    cursor = sistema.conn.cursor()
+    cursor = manager.conn.cursor()
     cursor.execute("SELECT * FROM lote WHERE produto_id = ?", (produto_id,))
     lotes = cursor.fetchall()
     return jsonify([dict(lote) for lote in lotes]), 200
@@ -83,7 +83,7 @@ def obter_lotes(produto_id):
 @app.route('/api/criar_db', methods=['POST'])
 def criar_banco():
     db_path = Path("estoque.db")
-    sistema.criar_banco_e_tabelas(db_path)
+    manager.criar_banco_e_tabelas(db_path)
     return jsonify({"message": "Banco de dados criado com sucesso."}), 201
 
 if __name__ == '__main__':
