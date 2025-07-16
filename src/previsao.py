@@ -39,31 +39,28 @@ def importar_vendas_csv(conn: sqlite3.Connection, caminho_csv: Union[str, Path])
         data = row["data_dia"].strftime("%Y-%m-%d")
         quantidade = float(row["total_venda_dia_kg"])
 
-        cursor.execute("SELECT id FROM produto WHERE sku = ?", (sku,))
+        cursor.execute("SELECT sku FROM produto WHERE sku = ?", (sku,))
         resultado = cursor.fetchone()
 
-        if resultado:
-            produto_id = resultado[0]
-        else:
+        if not resultado:
             cursor.execute(
                 "INSERT INTO produto (sku, nome, categoria) VALUES (?, ?, ?)",
                 (sku, nome, categoria)
             )
-            produto_id = cursor.lastrowid
             produtos_criados += 1
             logging.info(f"Produto criado: SKU={sku}, Nome={nome}")
 
         cursor.execute(
-            "SELECT id FROM venda WHERE produto_id = ? AND data = ?",
-            (produto_id, data)
+            "SELECT id FROM venda WHERE produto_sku = ? AND data = ?",
+            (sku, data)
         )
         if cursor.fetchone():
             logging.warning(f"Venda já registrada para SKU={sku} em {data}. Ignorando.")
             continue
 
         cursor.execute(
-            "INSERT INTO venda (data, quantidade, produto_id) VALUES (?, ?, ?)",
-            (data, quantidade, produto_id)
+            "INSERT INTO venda (data, quantidade, produto_sku) VALUES (?, ?, ?)",
+            (data, quantidade, sku)
         )
         vendas_inseridas += 1
         total_linhas += 1
@@ -79,8 +76,7 @@ def carregar_dados_do_banco(conn: sqlite3.Connection, sku: str) -> pd.DataFrame:
     query = """
         SELECT v.data, SUM(v.quantidade) as total_venda_dia_kg
         FROM venda v
-        JOIN produto p ON v.produto_id = p.id
-        WHERE p.sku = ?
+        WHERE v.produto_sku = ?
         GROUP BY v.data
         ORDER BY v.data ASC
     """
